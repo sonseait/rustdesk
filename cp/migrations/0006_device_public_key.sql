@@ -1,0 +1,1 @@
+ALTER TABLE devices ADD COLUMN public_key TEXT NOT NULL DEFAULT '';

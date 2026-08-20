@@ -1,0 +1,40 @@
+[workspace]
+members = [
+    "crates/api",
+    "crates/auth",
+    "crates/db",
+    "crates/domain",
+    "crates/node-agent",
+    "crates/protocol",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "AGPL-3.0-or-later"
+rust-version = "1.75"
+version = "0.1.0"
+
+[workspace.dependencies]
+anyhow = "1.0"
+aes-gcm = "0.10"
+argon2 = "0.5"
+async-trait = "0.1"
+axum = { version = "0.7", features = ["json", "macros"] }
+chrono = { version = "0.4", features = ["serde"] }
+ed25519-dalek = { version = "2.1", features = ["rand_core", "serde"] }
+hex = "0.4"
+http = "1.1"
+rand_core = { version = "0.6", features = ["getrandom"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = ["chrono", "macros", "migrate", "postgres", "runtime-tokio-rustls", "uuid"] }
+thiserror = "1.0"
+tokio = { version = "1.40", features = ["macros", "rt-multi-thread", "signal"] }
+tower-http = { version = "0.6", features = ["cors", "request-id", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+totp-rs = { version = "5.4", default-features = false, features = ["gen_secret", "otpauth"] }
+uuid = { version = "1.10", features = ["serde", "v4"] }

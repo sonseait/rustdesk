@@ -1,0 +1,81 @@
+openapi: 3.1.0
+info:
+  title: RustDesk Managed Control Plane API
+  version: 1.0.0
+  description: |
+    The portal consumes this contract through the generated TypeScript client.
+    Cookie-authenticated mutations require a same-origin request.
+servers:
+  - url: /api
+paths:
+  /healthz:
+    get:
+      operationId: health
+      responses:
+        '200': { description: API and database are reachable }
+  /v1/auth/login:
+    post:
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+                totp_code: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200': { description: Authenticated portal user }
+        '401': { description: Invalid credentials or MFA code }
+        '429': { description: Login rate limit reached }
+  /v1/auth/totp:
+    post:
+      operationId: beginTotpSetup
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200': { description: otpauth URI for an authenticator application }
+  /v1/auth/totp/confirm:
+    post:
+      operationId: confirmTotpSetup
+      security: [{ sessionCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties: { code: { type: string, pattern: '^[0-9]{6}$' } }
+      responses:
+        '204': { description: MFA enabled }
+  /v1/devices:
+    get:
+      operationId: listDevices
+      security: [{ sessionCookie: [] }]
+      responses: { '200': { description: Managed devices } }
+  /v1/session-tickets:
+    post:
+      operationId: createSessionTicket
+      responses:
+        '200': { description: Signed target-bound, single-use session ticket }
+  /v1/device-policy:
+    post:
+      operationId: getDevicePolicy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [credential]
+      responses:
+        '200': { description: Signed, short-lived offline policy snapshot }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: rustdesk_session

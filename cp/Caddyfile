@@ -1,0 +1,36 @@
+{$CONTROL_PLANE_DOMAIN} {
+    encode zstd gzip
+    handle_path /api/* {
+        reverse_proxy control-plane-api:8080
+    }
+    handle {
+        reverse_proxy portal:80
+    }
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+    }
+}
+
+# This is intentionally a separate TLS site from the public portal. Caddy
+# validates the node certificate before it adds the trusted upstream marker.
+{$NODE_AGENT_DOMAIN} {
+    tls {
+        client_auth {
+            mode require_and_verify
+            trust_pool file {
+                pem_file /etc/caddy/node-agent-ca.pem
+            }
+        }
+    }
+    @node_agent path /v1/node-agent/*
+    handle @node_agent {
+        reverse_proxy control-plane-api:8080 {
+            header_up -X-Mtls-Verified
+            header_up X-Mtls-Verified "true"
+        }
+    }
+    respond "not found" 404
+}

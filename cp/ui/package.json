@@ -1,0 +1,30 @@
+{
+  "name": "rustdesk-control-plane-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@mantine/core": "latest",
+    "@mantine/hooks": "latest",
+    "@tanstack/react-query": "latest",
+    "@vitejs/plugin-react": "latest",
+    "dayjs": "latest",
+    "lucide-react": "latest",
+    "mantine-datatable": "latest",
+    "vite": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "react-hot-toast": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "typescript": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest"
+  }
+}

@@ -1,0 +1,29 @@
+[package]
+name = "control-plane-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+aes-gcm.workspace = true
+axum.workspace = true
+chrono.workspace = true
+ed25519-dalek.workspace = true
+hex.workspace = true
+control-plane-auth = { path = "../auth" }
+control-plane-protocol = { path = "../protocol" }
+control-plane-db = { path = "../db" }
+control-plane-domain = { path = "../domain" }
+control-plane-node-agent = { path = "../node-agent" }
+http.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+totp-rs.workspace = true
+uuid.workspace = true
