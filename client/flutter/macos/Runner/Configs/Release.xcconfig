@@ -1,2 +1,5 @@
 #include "../../Flutter/Flutter-Release.xcconfig"
 #include "Warnings.xcconfig"
+
+// The managed local build produces an Apple Silicon Rust library.
+EXCLUDED_ARCHS[sdk=macosx*] = x86_64

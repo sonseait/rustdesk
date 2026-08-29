@@ -44,7 +44,7 @@ use control_plane_protocol::{
 use serde::{Deserialize, Serialize};
 use totp_rs::{Algorithm, Secret, TOTP};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
-use tracing::info;
+use tracing::{error, info};
 
 #[derive(Clone)]
 struct AppState {
@@ -53,6 +53,7 @@ struct AppState {
     session_ttl: Duration,
     secure_cookie: bool,
     credential_signing_key: Option<ed25519_dalek::SigningKey>,
+    deployment_config_signing_key: Option<ed25519_dalek::SigningKey>,
     totp_encryption_key: Option<[u8; 32]>,
     login_attempts: Arc<tokio::sync::Mutex<HashMap<String, (u8, Instant)>>>,
 }
@@ -128,6 +129,31 @@ struct DevicePolicyRequest {
     credential: SignedDeviceCredential,
 }
 
+#[derive(Deserialize)]
+struct ManagedConfigRequest {
+    device_id: uuid::Uuid,
+    timestamp: i64,
+    nonce: String,
+    signature: String,
+}
+
+#[derive(Serialize)]
+struct DeploymentConfigClaims {
+    version: u16,
+    revision: i64,
+    rendezvous_server: String,
+    relay_server: String,
+    server_public_key: String,
+    issued_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Serialize)]
+struct SignedDeploymentConfig {
+    claims: DeploymentConfigClaims,
+    signature: String,
+    issuer_public_key: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -137,7 +163,7 @@ async fn main() -> Result<()> {
     let database_url = required_env("DATABASE_URL")?;
     let bootstrap_token = required_env("BOOTSTRAP_TOKEN")?;
     let bind_addr: SocketAddr = env::var("BIND_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:8080".to_owned())
+        .unwrap_or_else(|_| "0.0.0.0:8080".to_owned())
         .parse()
         .context("BIND_ADDR must be a socket address")?;
     let session_ttl_hours: i64 = env::var("SESSION_TTL_HOURS")
@@ -160,6 +186,10 @@ async fn main() -> Result<()> {
                 .context("DEVICE_CREDENTIAL_SIGNING_KEY must be a 32-byte Ed25519 seed")?;
             Ok::<_, anyhow::Error>(ed25519_dalek::SigningKey::from_bytes(&bytes))
         })
+        .transpose()?;
+    let deployment_config_signing_key = env::var("BOOTSTRAP_CONFIG_SIGNING_KEY")
+        .ok()
+        .map(parse_ed25519_seed)
         .transpose()?;
     let totp_encryption_key = env::var("TOTP_ENCRYPTION_KEY")
         .ok()
@@ -209,6 +239,7 @@ async fn main() -> Result<()> {
         .route("/v1/devices/:id/heartbeat", post(heartbeat))
         .route("/v1/devices/:id/credential/renew", post(renew_credential))
         .route("/v1/device-policy", post(device_policy))
+        .route("/v1/managed/config", post(managed_config))
         .route("/v1/session-tickets", post(create_session_ticket))
         .with_state(AppState {
             database,
@@ -216,6 +247,7 @@ async fn main() -> Result<()> {
             session_ttl: Duration::hours(session_ttl_hours),
             secure_cookie,
             credential_signing_key,
+            deployment_config_signing_key,
             totp_encryption_key,
             login_attempts: Default::default(),
         })
@@ -930,6 +962,83 @@ async fn device_policy(
     }))
 }
 
+async fn managed_config(
+    State(state): State<AppState>,
+    Json(request): Json<ManagedConfigRequest>,
+) -> Result<Json<SignedDeploymentConfig>, ApiError> {
+    let signing_key = state
+        .deployment_config_signing_key
+        .as_ref()
+        .ok_or_else(ApiError::service_unavailable)?;
+    verify_device_proof(
+        &state.database,
+        request.device_id,
+        request.timestamp,
+        &request.nonce,
+        &request.signature,
+        "managed-config",
+    )
+    .await?;
+    let config = current_server_config(&state.database)
+        .await
+        .map_err(ApiError::database)?;
+    if config.rendezvous_server.is_empty()
+        || config.relay_server.is_empty()
+        || config.server_public_key.is_empty()
+    {
+        return Err(ApiError::service_unavailable());
+    }
+    let claims = DeploymentConfigClaims {
+        version: 1,
+        revision: config.revision,
+        rendezvous_server: config.rendezvous_server,
+        relay_server: config.relay_server,
+        server_public_key: config.server_public_key,
+        issued_at: Utc::now(),
+    };
+    use ed25519_dalek::Signer;
+    let payload = serde_json::to_vec(&claims).map_err(|_| ApiError::internal())?;
+    Ok(Json(SignedDeploymentConfig {
+        signature: hex::encode(signing_key.sign(&payload).to_bytes()),
+        issuer_public_key: hex::encode(signing_key.verifying_key().as_bytes()),
+        claims,
+    }))
+}
+
+async fn verify_device_proof(
+    database: &Database,
+    device_id: uuid::Uuid,
+    timestamp: i64,
+    nonce: &str,
+    signature: &str,
+    purpose: &str,
+) -> Result<(), ApiError> {
+    if (Utc::now().timestamp() - timestamp).abs() > 300 {
+        return Err(ApiError::unauthorized());
+    }
+    let public_key = device_public_key(database, device_id)
+        .await
+        .map_err(ApiError::database)?
+        .ok_or_else(ApiError::unauthorized)?;
+    let bytes = hex::decode(public_key).map_err(|_| ApiError::unauthorized())?;
+    let bytes: [u8; 32] = bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| ApiError::unauthorized())?;
+    let key =
+        ed25519_dalek::VerifyingKey::from_bytes(&bytes).map_err(|_| ApiError::unauthorized())?;
+    let signature = hex::decode(signature)
+        .ok()
+        .and_then(|bytes| ed25519_dalek::Signature::from_slice(&bytes).ok())
+        .ok_or_else(ApiError::unauthorized)?;
+    use ed25519_dalek::Verifier;
+    key.verify(
+        format!("{device_id}:{timestamp}:{nonce}:{purpose}").as_bytes(),
+        &signature,
+    )
+    .map_err(|_| ApiError::unauthorized())
+}
+
 async fn verify_device_credential(
     database: &Database,
     signing_key: &ed25519_dalek::SigningKey,
@@ -1032,6 +1141,15 @@ fn current_user_response(user: User) -> CurrentUserResponse {
 
 fn required_env(name: &str) -> Result<String> {
     env::var(name).with_context(|| format!("{name} must be set"))
+}
+
+fn parse_ed25519_seed(value: String) -> Result<ed25519_dalek::SigningKey> {
+    let bytes = hex::decode(value).context("Ed25519 signing key must be hex")?;
+    let bytes: [u8; 32] = bytes
+        .as_slice()
+        .try_into()
+        .context("Ed25519 signing key must be a 32-byte seed")?;
+    Ok(ed25519_dalek::SigningKey::from_bytes(&bytes))
 }
 
 async fn health(State(state): State<AppState>) -> Result<Json<HealthResponse>, ApiError> {
@@ -1206,7 +1324,13 @@ impl ApiError {
             message: "device credential issuer is not configured".into(),
         }
     }
-    fn database(_: control_plane_db::DatabaseError) -> Self {
+    fn database(error: control_plane_db::DatabaseError) -> Self {
+        if matches!(error, control_plane_db::DatabaseError::ActiveRustDeskId) {
+            return Self::conflict(
+                "an active device already uses this RustDesk ID; revoke it before re-enrolling",
+            );
+        }
+        error!(error = ?error, "control plane database operation failed");
         Self::internal()
     }
     fn internal() -> Self {

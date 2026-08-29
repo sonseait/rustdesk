@@ -50,6 +50,17 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
     } else {
         crate::read_custom_client(custom_client_config);
     }
+    #[cfg(feature = "managed-only")]
+    if let Err(error) = crate::managed_client::bootstrap_managed_only() {
+        log::warn!("managed bootstrap failed: {error}");
+    }
+    #[cfg(feature = "managed-only")]
+    std::thread::spawn(|| loop {
+        std::thread::sleep(Duration::from_secs(300));
+        if let Err(error) = crate::managed_client::sync_deployment_config() {
+            log::warn!("managed configuration refresh failed: {error}");
+        }
+    });
     #[cfg(target_os = "android")]
     {
         // flexi_logger can't work when android_logger initialized.
@@ -116,7 +127,10 @@ pub fn managed_enroll(enrollment_token: String, display_name: String) -> String 
 }
 
 pub fn managed_heartbeat() -> String {
-    crate::managed_client::heartbeat().err().unwrap_or_default()
+    crate::managed_client::sync_deployment_config()
+        .and_then(|_| crate::managed_client::heartbeat())
+        .err()
+        .unwrap_or_default()
 }
 
 pub fn managed_renew_credential() -> String {

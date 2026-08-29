@@ -326,6 +326,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "http",
+ "rand_core 0.6.4",
  "serde",
  "serde_json",
  "sha2",

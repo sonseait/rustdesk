@@ -21,6 +21,8 @@ pub struct UserWithPassword {
 
 #[derive(Debug, Error)]
 pub enum DatabaseError {
+    #[error("an active device already uses this RustDesk ID")]
+    ActiveRustDeskId,
     #[error("database query failed")]
     Query(#[from] sqlx::Error),
     #[error("database migration failed")]
@@ -312,12 +314,15 @@ pub async fn update_server_policy(
 pub async fn current_server_config(
     database: &Database,
 ) -> Result<CurrentServerConfig, DatabaseError> {
-    let row = sqlx::query("SELECT revision, managed_mode, credential_issuer_public_key, updated_at FROM current_server_desired_config WHERE singleton = TRUE")
+    let row = sqlx::query("SELECT revision, managed_mode, credential_issuer_public_key, rendezvous_server, relay_server, server_public_key, updated_at FROM current_server_desired_config WHERE singleton = TRUE")
         .fetch_one(database).await?;
     Ok(CurrentServerConfig {
         revision: row.get("revision"),
         managed_mode: row.get("managed_mode"),
         credential_issuer_public_key: row.get("credential_issuer_public_key"),
+        rendezvous_server: row.get("rendezvous_server"),
+        relay_server: row.get("relay_server"),
+        server_public_key: row.get("server_public_key"),
         updated_at: row.get("updated_at"),
     })
 }
@@ -328,12 +333,15 @@ pub async fn update_current_server_config(
     config: &UpdateCurrentServerConfig,
 ) -> Result<CurrentServerConfig, DatabaseError> {
     let mut transaction = database.begin().await?;
-    let row = sqlx::query("UPDATE current_server_desired_config SET revision = revision + 1, managed_mode = $1, credential_issuer_public_key = $2, updated_by_user_id = $3, updated_at = NOW() WHERE singleton = TRUE RETURNING revision, managed_mode, credential_issuer_public_key, updated_at")
-        .bind(&config.managed_mode).bind(&config.credential_issuer_public_key).bind(actor_user_id).fetch_one(&mut *transaction).await?;
+    let row = sqlx::query("UPDATE current_server_desired_config SET revision = revision + 1, managed_mode = $1, credential_issuer_public_key = $2, rendezvous_server = $3, relay_server = $4, server_public_key = $5, updated_by_user_id = $6, updated_at = NOW() WHERE singleton = TRUE RETURNING revision, managed_mode, credential_issuer_public_key, rendezvous_server, relay_server, server_public_key, updated_at")
+        .bind(&config.managed_mode).bind(&config.credential_issuer_public_key).bind(&config.rendezvous_server).bind(&config.relay_server).bind(&config.server_public_key).bind(actor_user_id).fetch_one(&mut *transaction).await?;
     let updated = CurrentServerConfig {
         revision: row.get("revision"),
         managed_mode: row.get("managed_mode"),
         credential_issuer_public_key: row.get("credential_issuer_public_key"),
+        rendezvous_server: row.get("rendezvous_server"),
+        relay_server: row.get("relay_server"),
+        server_public_key: row.get("server_public_key"),
         updated_at: row.get("updated_at"),
     };
     sqlx::query("INSERT INTO audit_events (id, actor_user_id, action, target_type, target_id, detail) VALUES ($1, $2, 'current_server_config_updated', 'current_server', 'current', $3)")
@@ -530,6 +538,18 @@ pub async fn claim_enrollment(
         transaction.rollback().await?;
         return Ok(None);
     };
+    if !rustdesk_id.trim().is_empty() {
+        let existing_device: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM devices WHERE rustdesk_id = $1 AND revoked_at IS NULL LIMIT 1 FOR UPDATE",
+        )
+        .bind(rustdesk_id.trim())
+        .fetch_optional(&mut *transaction)
+        .await?;
+        if existing_device.is_some() {
+            transaction.rollback().await?;
+            return Err(DatabaseError::ActiveRustDeskId);
+        }
+    }
     let id = Uuid::new_v4();
     let row = sqlx::query(
         "INSERT INTO devices (id, rustdesk_id, display_name, hostname, operating_system, client_version, public_key_fingerprint, public_key, enrollment_token_id) \

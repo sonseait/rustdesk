@@ -26,6 +26,7 @@ use_samplerate = ["samplerate"]
 use_rubato = ["rubato"]
 use_dasp = ["dasp"]
 flutter = ["flutter_rust_bridge"]
+managed-only = []
 default = ["use_dasp"]
 hwcodec = ["scrap/hwcodec"]
 vram = ["scrap/vram"]
@@ -81,7 +82,9 @@ hex = "0.4"
 chrono = { version = "0.4", features = ["serde"] }
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
-keyring = "3.6"
+# Without this feature keyring falls back to an in-memory mock store on macOS,
+# which loses an enrolled device credential when the app exits.
+keyring = { version = "3.6", features = ["apple-native"] }
 cidr-utils = "0.5"
 fon = "0.6"
 zip = "0.6"

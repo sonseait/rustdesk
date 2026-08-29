@@ -35,6 +35,10 @@ export function login(email: string, password: string, totpCode?: string) {
   return generatedApi.login({ email, password, ...(totpCode ? { totp_code: totpCode } : {}) })
 }
 
+export function getCurrentUser() {
+  return generatedApi.currentUser()
+}
+
 export type AnonymousRemotePolicy = {
   enabled: boolean
   max_session_minutes: number
@@ -60,9 +64,9 @@ export async function updateServerPolicy(policy: AnonymousRemotePolicy) {
   return response.json() as Promise<AnonymousRemotePolicy>
 }
 
-export type CurrentServerConfig = { revision: number; managed_mode: 'off' | 'optional' | 'required'; credential_issuer_public_key: string | null; updated_at: string }
+export type CurrentServerConfig = { revision: number; managed_mode: 'off' | 'optional' | 'required'; credential_issuer_public_key: string | null; rendezvous_server: string; relay_server: string; server_public_key: string; updated_at: string }
 export const getCurrentServerConfig = () => getAdminResource<CurrentServerConfig>('/v1/current-server/config')
-export async function updateCurrentServerConfig(config: Pick<CurrentServerConfig, 'managed_mode' | 'credential_issuer_public_key'>) {
+export async function updateCurrentServerConfig(config: Pick<CurrentServerConfig, 'managed_mode' | 'credential_issuer_public_key' | 'rendezvous_server' | 'relay_server' | 'server_public_key'>) {
   const response = await fetch(`${apiBaseUrl}/v1/current-server/config`, {
     method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config),
   })

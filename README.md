@@ -9,7 +9,7 @@ Rust control plane, and React administration portal.
 - `server/`: `hbbs` rendezvous and `hbbr` relay services.
 - `libs/hbb_common/`: shared protocol and runtime library.
 - `cp/`: control-plane API, domain, database, protocol, and node-agent crates.
-- `cp-ui/`: React/Vite administration portal.
+- `cp/ui/`: React/Vite administration portal.
 
 ## Development checks
 
@@ -19,7 +19,7 @@ Run each workspace independently:
 (cd client && cargo check --lib --features flutter)
 (cd server && cargo check)
 (cd cp && cargo test --workspace)
-(cd cp-ui && npm run build)
+(cd cp/ui && npm run build)
 ```
 
 See `managed-platform-monorepo-plan.md` for the implementation roadmap and

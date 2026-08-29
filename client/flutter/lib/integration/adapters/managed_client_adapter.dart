@@ -7,17 +7,25 @@ import 'package:flutter_hbb/integration/bridge/platform_ffi.dart';
 class ManagedClientStatus {
   const ManagedClientStatus(
       {required this.state,
+      required this.managedOnly,
       required this.deviceId,
       required this.controlPlaneUrl,
+      required this.rendezvousServer,
+      required this.relayServer,
       required this.credentialExpiresAt,
       required this.policyExpiresAt,
-      required this.policyState});
+      required this.policyState,
+      required this.lastError});
   final String state;
+  final bool managedOnly;
   final String deviceId;
   final String controlPlaneUrl;
+  final String rendezvousServer;
+  final String relayServer;
   final String credentialExpiresAt;
   final String policyExpiresAt;
   final String policyState;
+  final String lastError;
   bool get enrolled => state == 'enrolled';
 }
 
@@ -26,11 +34,15 @@ class ManagedClientAdapter extends ChangeNotifier {
   static final instance = ManagedClientAdapter._();
   ManagedClientStatus _status = const ManagedClientStatus(
       state: 'not_enrolled',
+      managedOnly: false,
       deviceId: '',
       controlPlaneUrl: '',
+      rendezvousServer: '',
+      relayServer: '',
       credentialExpiresAt: '',
       policyExpiresAt: '',
-      policyState: 'unavailable');
+      policyState: 'unavailable',
+      lastError: '');
   ManagedClientStatus get status => _status;
 
   Future<void> refresh() async {
@@ -38,11 +50,15 @@ class ManagedClientAdapter extends ChangeNotifier {
     final map = jsonDecode(raw) as Map<String, dynamic>;
     _status = ManagedClientStatus(
         state: map['state'] as String? ?? 'not_enrolled',
+        managedOnly: map['managed_only'] as bool? ?? false,
         deviceId: map['device_id'] as String? ?? '',
         controlPlaneUrl: map['control_plane_url'] as String? ?? '',
+        rendezvousServer: map['rendezvous_server'] as String? ?? '',
+        relayServer: map['relay_server'] as String? ?? '',
         credentialExpiresAt: map['credential_expires_at'] as String? ?? '',
         policyExpiresAt: map['policy_expires_at'] as String? ?? '',
-        policyState: map['policy_state'] as String? ?? 'unavailable');
+        policyState: map['policy_state'] as String? ?? 'unavailable',
+        lastError: map['last_error'] as String? ?? '');
     notifyListeners();
   }
 

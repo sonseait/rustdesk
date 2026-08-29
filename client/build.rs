@@ -78,6 +78,27 @@ fn install_android_deps() {
 }
 
 fn main() {
+    for key in [
+        "MANAGED_CP_URL",
+        "MANAGED_CP_CONFIG_PUBLIC_KEY",
+        "MANAGED_BOOTSTRAP_TOKEN",
+    ] {
+        println!("cargo:rerun-if-env-changed={key}");
+    }
+    if std::env::var_os("CARGO_FEATURE_MANAGED_ONLY").is_some() {
+        let required = |key: &str| {
+            std::env::var(key).unwrap_or_else(|_| panic!("{key} must be set for managed-only builds"))
+        };
+        let output = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap())
+            .join("managed_bootstrap.rs");
+        let contents = format!(
+            "pub const CP_URL: &str = {:?};\npub const CONFIG_PUBLIC_KEY: &str = {:?};\npub const BOOTSTRAP_TOKEN: &str = {:?};\n",
+            required("MANAGED_CP_URL"),
+            required("MANAGED_CP_CONFIG_PUBLIC_KEY"),
+            required("MANAGED_BOOTSTRAP_TOKEN"),
+        );
+        std::fs::write(output, contents).expect("write managed bootstrap constants");
+    }
     hbb_common::gen_version();
     install_android_deps();
     #[cfg(all(windows, feature = "inline"))]

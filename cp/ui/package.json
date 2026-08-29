@@ -13,18 +13,21 @@
     "@mantine/hooks": "latest",
     "@tanstack/react-query": "latest",
     "@vitejs/plugin-react": "latest",
+    "clsx": "latest",
     "dayjs": "latest",
     "lucide-react": "latest",
     "mantine-datatable": "latest",
-    "vite": "latest",
     "react": "latest",
     "react-dom": "latest",
     "react-hot-toast": "latest",
+    "react-router-dom": "^7.18.3",
+    "vite": "latest",
     "zod": "latest"
   },
   "devDependencies": {
-    "typescript": "latest",
     "@types/react": "latest",
-    "@types/react-dom": "latest"
-  }
+    "@types/react-dom": "latest",
+    "typescript": "latest"
+  },
+  "packageManager": "yarn@4.18.0"
 }

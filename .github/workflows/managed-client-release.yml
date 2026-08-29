@@ -1,0 +1,115 @@
+name: Managed Client Release
+
+on:
+  push:
+    paths:
+      - 'client/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: managed-client-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    name: Build Windows client
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: client
+        shell: bash
+    env:
+      MANAGED_CP_URL: ${{ secrets.MANAGED_CP_URL }}
+      MANAGED_CP_CONFIG_PUBLIC_KEY: ${{ secrets.MANAGED_CP_CONFIG_PUBLIC_KEY }}
+      MANAGED_BOOTSTRAP_TOKEN: ${{ secrets.MANAGED_BOOTSTRAP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.8
+          channel: stable
+          cache: true
+      - name: Fetch Flutter dependencies
+        run: flutter pub get
+        working-directory: client/flutter
+      - name: Build managed Windows client
+        run: |
+          cargo build --release --lib --features flutter,managed-only
+          cd flutter
+          flutter build windows --release --no-pub
+      - name: Package Windows release
+        shell: pwsh
+        run: |
+          Compress-Archive -Path 'flutter/build/windows/x64/runner/Release/*' -DestinationPath "$env:GITHUB_WORKSPACE/rustdesk-managed-windows-x64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-managed-windows-x64
+          path: rustdesk-managed-windows-x64.zip
+          if-no-files-found: error
+
+  build-macos:
+    name: Build macOS client
+    runs-on: macos-14
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: client
+    env:
+      MANAGED_CP_URL: ${{ secrets.MANAGED_CP_URL }}
+      MANAGED_CP_CONFIG_PUBLIC_KEY: ${{ secrets.MANAGED_CP_CONFIG_PUBLIC_KEY }}
+      MANAGED_BOOTSTRAP_TOKEN: ${{ secrets.MANAGED_BOOTSTRAP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.44.8
+          channel: stable
+          cache: true
+      - name: Fetch Flutter dependencies
+        run: flutter pub get
+        working-directory: client/flutter
+      - name: Build managed macOS client
+        run: |
+          cargo build --release --lib --features flutter,managed-only
+          cd flutter
+          flutter build macos --release --no-pub
+      - name: Package macOS release
+        run: |
+          cd flutter/build/macos/Build/Products/Release
+          ditto -c -k --sequesterRsrc --keepParent RustDesk.app "$GITHUB_WORKSPACE/rustdesk-managed-macos-arm64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-managed-macos-arm64
+          path: rustdesk-managed-macos-arm64.zip
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub prerelease
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: rustdesk-managed-*
+          path: release-assets
+          merge-multiple: true
+      - name: Create or update prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: managed-client-${{ github.sha }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          else
+            gh release create "$RELEASE_TAG" release-assets/* \
+              --target "$GITHUB_SHA" \
+              --title "Managed client $GITHUB_SHA" \
+              --notes "Automated managed-client build for commit $GITHUB_SHA." \
+              --prerelease
+          fi

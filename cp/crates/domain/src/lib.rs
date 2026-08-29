@@ -148,6 +148,9 @@ pub struct CurrentServerConfig {
     pub revision: i64,
     pub managed_mode: String,
     pub credential_issuer_public_key: Option<String>,
+    pub rendezvous_server: String,
+    pub relay_server: String,
+    pub server_public_key: String,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -155,10 +158,24 @@ pub struct CurrentServerConfig {
 pub struct UpdateCurrentServerConfig {
     pub managed_mode: String,
     pub credential_issuer_public_key: Option<String>,
+    #[serde(default)]
+    pub rendezvous_server: String,
+    #[serde(default)]
+    pub relay_server: String,
+    #[serde(default)]
+    pub server_public_key: String,
 }
 
 impl UpdateCurrentServerConfig {
     pub fn validate(&self) -> Result<(), ValidationError> {
+        if [self.rendezvous_server.as_str(), self.relay_server.as_str()]
+            .iter()
+            .any(|value| value.len() > 256 || value.trim().is_empty())
+            || self.server_public_key.len() > 256
+            || self.server_public_key.trim().is_empty()
+        {
+            return Err(ValidationError::InvalidDeploymentConfig);
+        }
         match self.managed_mode.as_str() {
             "off" => Ok(()),
             "optional" | "required" => {
@@ -288,6 +305,8 @@ pub enum ValidationError {
     InvalidManagedMode,
     #[error("managed mode requires a 32-byte Ed25519 issuer public key")]
     InvalidIssuerPublicKey,
+    #[error("rendezvous, relay, and server key must be configured")]
+    InvalidDeploymentConfig,
 }
 
 #[cfg(test)]

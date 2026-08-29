@@ -14,7 +14,7 @@ The target is a self-hosted, single-tenant managed remote-access platform:
 - one in-tree copy of `hbb_common` shared by client and server.
 
 The repository starts with the RustDesk client, `server/`, the shared
-`libs/hbb_common`, `cp/`, and `cp-ui/`. It is treated as a new project;
+`libs/hbb_common`, `cp/`, and `cp/ui/`. It is treated as a new project;
 there are no source-repository migration, history-preservation, or archival
 requirements.
 
@@ -38,7 +38,7 @@ rustdesk/                              # one Git repository / monorepo root
       protocol/
       node-agent/
     migrations/
-  cp-ui/                                # React administration portal
+  cp/ui/                                # React administration portal
   docs/
     architecture/
     adr/

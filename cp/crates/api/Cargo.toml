@@ -12,6 +12,7 @@ axum.workspace = true
 chrono.workspace = true
 ed25519-dalek.workspace = true
 hex.workspace = true
+rand_core.workspace = true
 control-plane-auth = { path = "../auth" }
 control-plane-protocol = { path = "../protocol" }
 control-plane-db = { path = "../db" }

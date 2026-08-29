@@ -342,6 +342,10 @@ class WorkspaceViewModel extends ChangeNotifier {
     final managed = ManagedClientAdapter.instance;
     try {
       await managed.refresh();
+      if (managed.status.managedOnly && !managed.status.enrolled) {
+        return ConnectResult.failure(normalizedId, ConnectFailure.failed,
+            error: StateError('Managed configuration is unavailable.'));
+      }
       if (managed.status.enrolled) {
         await managed.requestSessionTicketForRustdeskId(normalizedId);
       }

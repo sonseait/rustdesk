@@ -15,6 +15,7 @@ import 'package:flutter_hbb/features/workspace/workspace_view_model.dart';
 import 'package:flutter_hbb/features/workspace/managed_status_card.dart';
 import 'package:flutter_hbb/integration/adapters/connect_adapter.dart';
 import 'package:flutter_hbb/integration/adapters/mobile_service_adapter.dart';
+import 'package:flutter_hbb/integration/adapters/managed_client_adapter.dart';
 import 'package:flutter_hbb/integration/adapters/peer.dart';
 import 'package:flutter_hbb/integration/adapters/peers_adapter.dart';
 import 'package:flutter_hbb/integration/adapters/service_status_adapter.dart';
@@ -1075,6 +1076,7 @@ class _Settings extends StatefulWidget {
 
 class _SettingsState extends State<_Settings> {
   final _search = TextEditingController();
+  final _managedClient = ManagedClientAdapter.instance;
   late final SettingsViewModel _settings;
   late final bool _ownsSettings;
 
@@ -1084,9 +1086,15 @@ class _SettingsState extends State<_Settings> {
     _ownsSettings = widget.settings == null;
     _settings = widget.settings ?? SettingsViewModel();
     _settings.addListener(_onSettingsChanged);
+    _managedClient.addListener(_onManagedClientChanged);
+    unawaited(_managedClient.refresh());
   }
 
   void _onSettingsChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onManagedClientChanged() {
     if (mounted) setState(() {});
   }
 
@@ -1141,6 +1149,7 @@ class _SettingsState extends State<_Settings> {
   @override
   void dispose() {
     _settings.removeListener(_onSettingsChanged);
+    _managedClient.removeListener(_onManagedClientChanged);
     if (_ownsSettings) _settings.dispose();
     _search.dispose();
     super.dispose();
@@ -1340,18 +1349,19 @@ class _SettingsState extends State<_Settings> {
               toggles: SettingsViewModel.networkToggles,
               icon: LucideIcons.network)
         ),
-        (
-          'id relay api server custom',
-          _SettingRow(
-              icon: LucideIcons.server,
-              title: 'ID and relay server',
-              subtitle: _settings.isServerSettingHidden
-                  ? 'Managed by your deployment'
-                  : 'Point this client at your own servers',
-              onTap: _settings.isServerSettingHidden
-                  ? null
-                  : () => _openSubpage(_SettingsSubpageKind.relayServer))
-        ),
+        if (!_managedClient.status.managedOnly)
+          (
+            'id relay api server custom',
+            _SettingRow(
+                icon: LucideIcons.server,
+                title: 'ID and relay server',
+                subtitle: _settings.isServerSettingHidden
+                    ? 'Managed by your deployment'
+                    : 'Point this client at your own servers',
+                onTap: _settings.isServerSettingHidden
+                    ? null
+                    : () => _openSubpage(_SettingsSubpageKind.relayServer))
+          ),
         (
           'proxy socks5 http https',
           _SettingRow(

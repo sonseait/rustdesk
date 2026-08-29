@@ -31,6 +31,13 @@ paths:
         '200': { description: Authenticated portal user }
         '401': { description: Invalid credentials or MFA code }
         '429': { description: Login rate limit reached }
+  /v1/auth/me:
+    get:
+      operationId: currentUser
+      responses:
+        '200':
+          description: Authenticated user
+        '401': { description: Authentication required }
   /v1/auth/totp:
     post:
       operationId: beginTotpSetup

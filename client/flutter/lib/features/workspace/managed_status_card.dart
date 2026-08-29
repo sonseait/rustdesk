@@ -10,6 +10,7 @@ class ManagedStatusCard extends StatefulWidget {
 
 class _ManagedStatusCardState extends State<ManagedStatusCard> {
   final adapter = ManagedClientAdapter.instance;
+  String _syncError = '';
   @override
   void initState() {
     super.initState();
@@ -31,79 +32,109 @@ class _ManagedStatusCardState extends State<ManagedStatusCard> {
   Widget build(BuildContext context) {
     final status = adapter.status;
     final revoked = status.state == 'revoked';
+    final needsAttention = revoked || status.lastError.isNotEmpty;
+    final statusLabel = status.enrolled
+        ? 'Protected'
+        : needsAttention
+            ? 'Action needed'
+            : 'Connecting';
     return Container(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
             color: CupertinoColors.systemBackground.resolveFrom(context),
             borderRadius: BorderRadius.circular(14)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            Icon(revoked ? LucideIcons.triangleAlert : LucideIcons.shieldCheck,
+            Icon(
+                needsAttention
+                    ? LucideIcons.triangleAlert
+                    : LucideIcons.shieldCheck,
                 size: 18,
-                color: revoked
+                color: needsAttention
                     ? CupertinoColors.systemRed
                     : CupertinoTheme.of(context).primaryColor),
             const SizedBox(width: 8),
             const Text('Managed device',
                 style: TextStyle(fontWeight: FontWeight.w700)),
             const Spacer(),
-            Text(status.state)
+            Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(
+                    color: needsAttention
+                        ? CupertinoColors.systemRed.withValues(alpha: 0.1)
+                        : CupertinoTheme.of(context)
+                            .primaryColor
+                            .withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(20)),
+                child: Text(statusLabel,
+                    style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: needsAttention
+                            ? CupertinoColors.systemRed
+                            : CupertinoTheme.of(context).primaryColor)))
           ]),
           const SizedBox(height: 8),
           Text(
               status.enrolled
-                  ? 'This device is enrolled with ${status.controlPlaneUrl}.'
-                  : revoked
-                      ? 'This device was revoked. Enroll again with a new token.'
-                      : 'Enroll this device to use managed access.',
+                  ? 'This device is protected by your organization.'
+                  : status.managedOnly
+                      ? 'Setting up the secure managed connection. New connections stay blocked until this is complete.'
+                      : revoked
+                          ? 'This device no longer has managed access.'
+                          : 'Enroll this device to use managed access.',
               style: const TextStyle(fontSize: 12)),
-          if (status.enrolled && status.credentialExpiresAt.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text('Managed access expires: ${status.credentialExpiresAt}',
-                style: const TextStyle(fontSize: 12)),
+          if (needsAttention) ...[
+            const SizedBox(height: 5),
+            const Text('Please contact your administrator if this continues.',
+                style:
+                    TextStyle(fontSize: 12, color: CupertinoColors.systemRed)),
           ],
-          if (status.enrolled) ...[
-            const SizedBox(height: 4),
-            Text(
-              status.policyState == 'active'
-                  ? 'Offline policy valid until: ${status.policyExpiresAt}'
-                  : 'Offline policy is unavailable. New managed sessions are blocked.',
-              style: const TextStyle(fontSize: 12),
-            ),
-          ],
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           if (status.enrolled)
-            Wrap(spacing: 8, children: [
+            Row(mainAxisSize: MainAxisSize.min, children: [
               CupertinoButton.filled(
+                  minimumSize: const Size(0, 30),
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                      const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                   onPressed: _renewCredential,
-                  child: const Text('Renew managed access')),
+                  child: const Text('Renew', style: TextStyle(fontSize: 12))),
+              const SizedBox(width: 6),
               CupertinoButton(
+                  minimumSize: const Size(0, 30),
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                      const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                   onPressed: _heartbeat,
-                  child: const Text('Refresh status')),
-            ])
-          else
+                  child: const Text('Sync', style: TextStyle(fontSize: 12))),
+            ]),
+          if (_syncError.isNotEmpty) ...[
+            const SizedBox(height: 5),
+            const Text('Could not refresh managed access. Please try again.',
+                style:
+                    TextStyle(fontSize: 12, color: CupertinoColors.systemRed)),
+          ],
+          if (!status.enrolled && !status.managedOnly)
             CupertinoButton.filled(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                minimumSize: const Size(0, 30),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                 onPressed: _enroll,
-                child: const Text('Enroll device')),
-          if (status.enrolled)
+                child: const Text('Enroll', style: TextStyle(fontSize: 12))),
+          if (status.enrolled && !status.managedOnly)
             CupertinoButton(
-                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 28),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                 onPressed: _deprovision,
-                child: const Text('Remove managed enrollment'))
+                child: const Text('Remove enrollment',
+                    style: TextStyle(fontSize: 11)))
         ]));
   }
 
   Future<void> _heartbeat() async {
     try {
       await adapter.heartbeat();
-    } catch (_) {
-      if (mounted) setState(() {});
+      if (mounted) setState(() => _syncError = '');
+    } catch (error) {
+      if (mounted) setState(() => _syncError = error.toString());
     }
   }
 

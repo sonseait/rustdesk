@@ -23,6 +23,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export const generatedApi = {
   login: (body: LoginRequest) => request<CurrentUser>('/v1/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+  currentUser: () => request<CurrentUser>('/v1/auth/me'),
   beginTotpSetup: () => request<TotpSetup>('/v1/auth/totp', { method: 'POST' }),
   confirmTotpSetup: (code: string) => request<void>('/v1/auth/totp/confirm', { method: 'POST', body: JSON.stringify({ code }) }),
 }
