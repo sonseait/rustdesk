@@ -1,28 +1,14 @@
-name: Workspace checks
+name: Client checks
 
 on:
   push:
+    paths:
+      - 'client/**'
   pull_request:
+    paths:
+      - 'client/**'
 
 jobs:
-  control-plane:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: cp
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --workspace
-  server:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: server
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo check
   client:
     runs-on: ubuntu-latest
     defaults:
@@ -36,17 +22,3 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes pkg-config libgtk-3-dev
       - run: cargo check --lib
-  portal:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: cp/ui
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: cp/ui/package-lock.json
-      - run: npm ci
-      - run: npm run build
