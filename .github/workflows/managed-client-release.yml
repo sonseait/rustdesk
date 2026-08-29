@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'client/**'
+      - '.github/workflows/managed-client-release.yml'
   workflow_dispatch:
 
 permissions:
