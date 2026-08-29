@@ -16,12 +16,11 @@ src/version.rs
 cert.pfx
 *.bak
 *png
+!res/mac-tray-dark-x2.png
 *svg
 *jpg
 sciter.dll
 **pdb
-src/bridge_generated.rs
-src/bridge_generated.io.rs
 *deb
 rustdesk
 *.cache
