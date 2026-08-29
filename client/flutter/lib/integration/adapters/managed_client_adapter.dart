@@ -46,6 +46,7 @@ class ManagedClientAdapter extends ChangeNotifier {
   ManagedClientStatus get status => _status;
 
   Future<void> refresh() async {
+    if (!platformFFI.isInitialized) return;
     final raw = PlatformFFI.instance.ffiBind.managedGetStatus();
     final map = jsonDecode(raw) as Map<String, dynamic>;
     _status = ManagedClientStatus(

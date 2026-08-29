@@ -54,9 +54,12 @@ class _ManagedStatusCardState extends State<ManagedStatusCard> {
                     ? CupertinoColors.systemRed
                     : CupertinoTheme.of(context).primaryColor),
             const SizedBox(width: 8),
-            const Text('Managed device',
-                style: TextStyle(fontWeight: FontWeight.w700)),
-            const Spacer(),
+            const Expanded(
+                child: Text('Managed device',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontWeight: FontWeight.w700))),
+            const SizedBox(width: 8),
             Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                 decoration: BoxDecoration(

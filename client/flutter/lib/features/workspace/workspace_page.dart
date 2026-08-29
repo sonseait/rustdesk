@@ -610,6 +610,7 @@ class _ServiceHealth extends StatelessWidget {
             ConnectStatus.connected => 'Connected',
             ConnectStatus.connecting => 'Connecting',
             ConnectStatus.disconnected => 'Offline',
+            ConnectStatus.managed => 'Managed',
             ConnectStatus.unknown =>
               identity.isLoading ? 'Checking' : 'Unknown',
           },
@@ -910,6 +911,9 @@ class _IdentityCardState extends State<_IdentityCard> {
     if (identity.isLoading) return 'Starting the service…';
     if (!identity.isServiceRunning) {
       return 'Sharing is stopped — incoming connections are refused';
+    }
+    if (identity.isManaged) {
+      return 'Managed access is ready for secure connections';
     }
     return identity.isOnline
         ? 'Online and ready for secure access'

@@ -63,6 +63,7 @@ class IdentityView {
     required this.isOnline,
     required this.isServiceRunning,
     required this.temporaryPassword,
+    this.isManaged = false,
     this.error,
   });
 
@@ -76,6 +77,10 @@ class IdentityView {
 
   /// The local sharing service is accepting connections.
   final bool isServiceRunning;
+
+  /// The managed client has restored a valid enrollment. This is independent
+  /// from the legacy service IPC status used by unmanaged deployments.
+  final bool isManaged;
 
   final String temporaryPassword;
   final Object? error;
@@ -115,6 +120,7 @@ class WorkspaceViewModel extends ChangeNotifier {
     ConnectAdapter? connectAdapter,
     PeerActions? actions,
     OptionRepository? optionRepository,
+    ManagedClientAdapter? managedClient,
     Map<PeerSource, PeerListAdapter>? peerLists,
   })  : _service = serviceStatus ?? ServiceStatusAdapter.instance,
         _account = account ?? AccountAdapter.instance,
@@ -123,6 +129,7 @@ class WorkspaceViewModel extends ChangeNotifier {
         _connect = connectAdapter ?? ConnectAdapter.instance,
         _actions = actions ?? PeerActions.instance,
         _options = optionRepository ?? OptionRepository.instance,
+        _managed = managedClient ?? ManagedClientAdapter.instance,
         _peerLists = peerLists ??
             {
               for (final source in [
@@ -140,6 +147,7 @@ class WorkspaceViewModel extends ChangeNotifier {
   final ConnectAdapter _connect;
   final PeerActions _actions;
   final OptionRepository _options;
+  final ManagedClientAdapter _managed;
   final Map<PeerSource, PeerListAdapter> _peerLists;
 
   bool _started = false;
@@ -156,17 +164,26 @@ class WorkspaceViewModel extends ChangeNotifier {
   /// The identity panel's state, derived from the service status.
   IdentityView get identity {
     final s = _service.status;
+    final managed = _isManagedConnectionActive;
     return IdentityView(
       deviceId: s.deviceId,
       isLoading: !s.isLoaded,
-      isOnline: s.connectStatus == ConnectStatus.connected,
+      isOnline: s.connectStatus == ConnectStatus.connected || managed,
       isServiceRunning: s.isServiceRunning,
       temporaryPassword: s.temporaryPassword,
+      isManaged: managed,
       error: s.error,
     );
   }
 
-  ConnectStatus get connectStatus => _service.status.connectStatus;
+  ConnectStatus get connectStatus => _isManagedConnectionActive
+      ? ConnectStatus.managed
+      : _service.status.connectStatus;
+
+  bool get _isManagedConnectionActive {
+    final status = _managed.status;
+    return status.managedOnly && status.enrolled;
+  }
 
   bool get isServiceRunning => _service.status.isServiceRunning;
 
@@ -416,6 +433,7 @@ class WorkspaceViewModel extends ChangeNotifier {
     }
 
     _service.addListener(_onChanged);
+    _managed.addListener(_onChanged);
     _account.addListener(_onChanged);
     _addressBook.addListener(_onChanged);
     _groups.addListener(_onChanged);
@@ -430,6 +448,7 @@ class WorkspaceViewModel extends ChangeNotifier {
       _account.load(),
       _addressBook.load(),
       _groups.load(),
+      _refreshManagedStatus(),
       refreshAll(),
       _refreshFavorites(),
     ]);
@@ -467,6 +486,14 @@ class WorkspaceViewModel extends ChangeNotifier {
     }
   }
 
+  Future<void> _refreshManagedStatus() async {
+    try {
+      await _managed.refresh();
+    } catch (error) {
+      debugPrint('failed to read managed client status: $error');
+    }
+  }
+
   void _onChanged() {
     if (_disposed) return;
     notifyListeners();
@@ -480,6 +507,7 @@ class WorkspaceViewModel extends ChangeNotifier {
       return;
     }
     _service.removeListener(_onChanged);
+    _managed.removeListener(_onChanged);
     _account.removeListener(_onChanged);
     _addressBook.removeListener(_onChanged);
     _groups.removeListener(_onChanged);

@@ -11,7 +11,7 @@ import 'package:flutter_hbb/integration/options/option_repository.dart';
 ///
 /// The numeric values are the Rust `status_num` contract:
 /// -1 connecting, 0 disconnected, 1 connected.
-enum ConnectStatus { connecting, disconnected, connected, unknown }
+enum ConnectStatus { connecting, disconnected, connected, managed, unknown }
 
 ConnectStatus connectStatusFrom(int statusNum) {
   switch (statusNum) {
@@ -232,8 +232,8 @@ class ServiceStatusAdapter extends ChangeNotifier {
         temporaryPasswordLength: normalizeTemporaryPasswordLength(
             await _options.getStringAsync(kOptionTemporaryPasswordLength)),
         approveMode: await _options.getStringAsync(kOptionApproveMode),
-        allowNumericOneTimePassword: await _options
-            .getBoolAsync(kOptionAllowNumericOneTimePassword),
+        allowNumericOneTimePassword:
+            await _options.getBoolAsync(kOptionAllowNumericOneTimePassword),
       );
       _apply(next);
     } catch (e, s) {
