@@ -26,6 +26,7 @@ jobs:
             pkg-config \
             libgtk-3-dev \
             libgstreamer1.0-dev \
-            libgstreamer-plugins-base1.0-dev
+            libgstreamer-plugins-base1.0-dev \
+            libpam0g-dev
           pkg-config --modversion gstreamer-1.0
       - run: cargo check --lib
