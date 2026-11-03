@@ -17,18 +17,30 @@ concurrency:
 jobs:
   build-windows:
     name: Build Windows client
-    runs-on: self-hosted
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 60
     defaults:
       run:
         working-directory: desktop
-        shell: bash
+        shell: pwsh
     env:
       MANAGED_CP_URL: ${{ secrets.MANAGED_CP_URL }}
       MANAGED_CP_CONFIG_PUBLIC_KEY: ${{ secrets.MANAGED_CP_CONFIG_PUBLIC_KEY }}
       MANAGED_BOOTSTRAP_TOKEN: ${{ secrets.MANAGED_BOOTSTRAP_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+      - name: Select Git Bash for setup actions
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $gitExecPath = (& git --exec-path).Trim()
+          $gitBin = [System.IO.Path]::GetFullPath((Join-Path $gitExecPath '../../../bin'))
+          $gitBash = Join-Path $gitBin 'bash.exe'
+          if (!(Test-Path $gitBash)) {
+            throw 'Git Bash was not found. Install Git for Windows and restart the runner service.'
+          }
+          Write-Host "Using Git Bash: $gitBash"
+          & $gitBash --version
+          $gitBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - uses: dtolnay/rust-toolchain@stable
       - uses: subosito/flutter-action@v2
         with:
