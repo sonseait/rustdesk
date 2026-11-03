@@ -5,6 +5,7 @@ on:
     paths:
       - 'desktop/**'
       - '.github/workflows/**'
+      - '.github/scripts/**'
   workflow_dispatch:
 
 permissions:
@@ -85,8 +86,11 @@ jobs:
           }
           $toolset = (Get-Content (Join-Path $vsRoot 'VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt') -Raw).Trim()
           "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VS_INSTALL_ROOT=$vsRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "revision=$revision" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "toolset=$toolset" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+      - name: Configure libclang for Windows Rust bindings
+        run: '& "$env:GITHUB_WORKSPACE/.github/scripts/setup-windows-libclang.ps1"'
       - name: Cache Windows native codecs
         id: native-cache
         uses: actions/cache@v4
@@ -115,7 +119,7 @@ jobs:
         with:
           workspaces: desktop -> target
           key: managed-windows-vcpkg-${{ steps.native-config.outputs.revision }}-msvc-${{ steps.native-config.outputs.toolset }}
-          env-vars: VCPKG MANAGED_
+          env-vars: VCPKG MANAGED_ LIBCLANG_PATH
           cache-workspace-crates: 'true'
       - name: Fetch Flutter dependencies
         run: flutter pub get
