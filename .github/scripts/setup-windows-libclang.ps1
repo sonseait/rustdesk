@@ -20,6 +20,36 @@ if ($clang) {
     $candidates += Split-Path $clang.Source -Parent
 }
 
+# Never load/unload LLVM in PowerShell: its native shutdown handlers can crash
+# the host process. Check the PE architecture here; bindgen loads the DLL later.
+function Test-X64Dll($path) {
+    $reader = $null
+    try {
+        $reader = [System.IO.BinaryReader]::new([System.IO.File]::OpenRead($path))
+        if ($reader.BaseStream.Length -lt 64 -or $reader.ReadUInt16() -ne 0x5A4D) {
+            return $false
+        }
+        $reader.BaseStream.Position = 0x3C
+        $peOffset = $reader.ReadUInt32()
+        if ($peOffset -lt 64 -or $peOffset -gt ($reader.BaseStream.Length - 24)) {
+            return $false
+        }
+        $reader.BaseStream.Position = $peOffset
+        if ($reader.ReadUInt32() -ne 0x00004550 -or $reader.ReadUInt16() -ne 0x8664) {
+            return $false
+        }
+        $reader.BaseStream.Position = $peOffset + 22
+        return ($reader.ReadUInt16() -band 0x2000) -ne 0
+    } catch {
+        Write-Host "Cannot inspect ${path}: $($_.Exception.Message)"
+        return $false
+    } finally {
+        if ($reader) {
+            $reader.Dispose()
+        }
+    }
+}
+
 function Find-LibClang($directories) {
     foreach ($directory in ($directories | Where-Object { $_ } | Select-Object -Unique)) {
         foreach ($name in @('libclang.dll', 'clang.dll')) {
@@ -27,18 +57,10 @@ function Find-LibClang($directories) {
             if (!(Test-Path $dll -PathType Leaf)) {
                 continue
             }
-            $handle = [IntPtr]::Zero
-            try {
-                $handle = [System.Runtime.InteropServices.NativeLibrary]::Load($dll)
-                [System.Runtime.InteropServices.NativeLibrary]::GetExport($handle, 'clang_getClangVersion') | Out-Null
+            if (Test-X64Dll $dll) {
                 return $directory
-            } catch {
-                Write-Host "Cannot load ${dll}: $($_.Exception.Message)"
-            } finally {
-                if ($handle -ne [IntPtr]::Zero) {
-                    [System.Runtime.InteropServices.NativeLibrary]::Free($handle)
-                }
             }
+            Write-Host "Skipping ${dll}: not an x64 Windows DLL."
         }
     }
 }
@@ -62,7 +84,7 @@ if (!$libclang) {
     $libclang = Find-LibClang @((Join-Path $llvmRoot 'bin'))
 }
 if (!$libclang) {
-    throw 'A loadable x64 libclang.dll could not be found after LLVM setup.'
+    throw 'An x64 Windows libclang.dll could not be found after LLVM setup.'
 }
 
 Write-Host "Using libclang from $libclang"
