@@ -1,0 +1,19 @@
+name: rustdesk-build
+
+services:
+  server:
+    image: ${SERVER_IMAGE:-fra.vultrcr.com/695w/rustdesk-server}:${IMAGE_TAG:-latest}
+    platform: linux/amd64
+    build:
+      context: ..
+      dockerfile: server/docker/Dockerfile
+      args:
+        # Match the linux/amd64 image platform.
+        S6_ARCH: ${S6_ARCH:-x86_64}
+
+  controlplane-api:
+    image: ${CP_IMAGE:-fra.vultrcr.com/695w/rustdesk-controlplane}:${IMAGE_TAG:-latest}
+    platform: linux/amd64
+    build:
+      context: ..
+      dockerfile: controlplane-api/Dockerfile

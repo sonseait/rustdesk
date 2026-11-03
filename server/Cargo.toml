@@ -18,8 +18,8 @@ path = "src/utils.rs"
 
 [dependencies]
 hbb_common = { path = "../libs/hbb_common" }
-control-plane-node-agent = { path = "../cp/crates/node-agent" }
-control-plane-protocol = { path = "../cp/crates/protocol" }
+control-plane-node-agent = { path = "../controlplane-api/crates/node-agent" }
+control-plane-protocol = { path = "../controlplane-api/crates/protocol" }
 serde_derive = "1.0"
 serde = "1.0"
 serde_json = "1.0"

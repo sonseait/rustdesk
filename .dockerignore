@@ -3,4 +3,9 @@
 **/build
 **/node_modules
 **/target
+**/dist
+**/.env
+**/.env.*
+**/*.tsbuildinfo
+**/.yarn/install-state.gz
 flutter

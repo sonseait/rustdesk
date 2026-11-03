@@ -15,9 +15,5 @@ services:
       TOTP_ENCRYPTION_KEY: f53614fef8ff34a10245490ad1fde5caaf3bab41b71585360c7db02f89eb597a
       RUST_LOG: info,control_plane_api=info
 
-  ruskdesk-cp-ui:
-    image: cr.0xh4ck3d.dev/c/rustdesk-cp-ui:latest
-    restart: unless-stopped
-
 volumes:
   rustdesk-server-data:

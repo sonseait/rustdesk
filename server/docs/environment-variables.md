@@ -125,10 +125,9 @@ At runtime the database location comes from **`DB_URL`** (default
 `./db_v2.sqlite3`). If unset, `hbbs` creates the SQLite file in its working
 directory.
 
-> **Do not confuse `DB_URL` with `DATABASE_URL`.** The `DATABASE_URL` entry in
-> the repository's `.env` is used **only at compile time** by `sqlx` to check SQL
-> queries; it is **not** read by the running server. Setting `DATABASE_URL` on a
-> running server has no effect — use `DB_URL`.
+The server uses parameterized runtime SQL queries, so compiling it does not
+require `DATABASE_URL`, a SQLite file, or a database connection. At runtime,
+use `DB_URL` to configure the server database; `DATABASE_URL` has no effect.
 
 ---
 

@@ -28,3 +28,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 totp-rs.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+tower = { version = "0.5", features = ["util"] }

@@ -15,6 +15,23 @@ The bootstrap endpoint is disabled after the first user is created. Replace
 the development bootstrap token with a deployment-specific secret before any
 non-local use.
 
+## Combined Docker image
+
+From the repository root, run `docker compose -f build/compose.yaml build controlplane-api`.
+The image builds the React portal and Rust API, then runs only the API process
+as a non-root user in `gcr.io/distroless/cc-debian12:nonroot`.
+
+The portal is served at `/`, with same-origin API requests under `/api` on
+port `8080`. Existing direct API paths (`/v1/...`, `/healthz`, `/metrics`) also
+remain available. Forward the control-plane domain to this single container;
+no separate UI container or `/api` prefix rewrite is needed.
+
+Set `DATABASE_URL`, `BOOTSTRAP_TOKEN`, and the signing/encryption configuration
+as before. `BIND_ADDR` defaults to `0.0.0.0:8080`. The built-in
+`--healthcheck` command checks `/healthz` without a shell or curl. For native
+development, set `UI_DIR=../controlplane-ui/dist` after building the portal to serve both from
+the API process; leave it unset to run the API with the Vite dev server.
+
 ## Session and anonymous access policy
 
 `POST /v1/auth/login` creates an opaque, database-backed session and returns a

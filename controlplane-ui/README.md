@@ -1,6 +1,7 @@
 # RustDesk Control Plane UI
 
-Standalone React administration portal for `../cp`.
+React administration portal for `../controlplane-api`, built into the same
+production Docker image as the API.
 
 ```sh
 npm install

@@ -46,6 +46,9 @@ use totp_rs::{Algorithm, Secret, TOTP};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing::{error, info};
 
+mod healthcheck;
+mod portal;
+
 #[derive(Clone)]
 struct AppState {
     database: Database,
@@ -160,12 +163,15 @@ async fn main() -> Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let database_url = required_env("DATABASE_URL")?;
-    let bootstrap_token = required_env("BOOTSTRAP_TOKEN")?;
     let bind_addr: SocketAddr = env::var("BIND_ADDR")
         .unwrap_or_else(|_| "0.0.0.0:8080".to_owned())
         .parse()
         .context("BIND_ADDR must be a socket address")?;
+    if env::args().nth(1).as_deref() == Some("--healthcheck") {
+        return healthcheck::check(bind_addr);
+    }
+    let database_url = required_env("DATABASE_URL")?;
+    let bootstrap_token = required_env("BOOTSTRAP_TOKEN")?;
     let session_ttl_hours: i64 = env::var("SESSION_TTL_HOURS")
         .unwrap_or_else(|_| "24".to_owned())
         .parse()
@@ -204,7 +210,7 @@ async fn main() -> Result<()> {
     let database = connect(&database_url).await?;
     migrate(&database).await?;
 
-    let app = Router::new()
+    let api = Router::new()
         .route("/healthz", get(health))
         .route("/metrics", get(metrics))
         .route("/v1/bootstrap/admin", post(bootstrap_admin))
@@ -250,12 +256,18 @@ async fn main() -> Result<()> {
             deployment_config_signing_key,
             totp_encryption_key,
             login_attempts: Default::default(),
-        })
+        });
+    let ui_dir = env::var_os("UI_DIR").map(std::path::PathBuf::from);
+    if let Some(dir) = &ui_dir {
+        std::fs::metadata(dir.join("index.html"))
+            .context("UI_DIR must contain the built portal's index.html")?;
+    }
+    let app = portal::router(api, ui_dir)
         .layer(CorsLayer::new())
         .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn(add_security_headers));
     let listener = tokio::net::TcpListener::bind(bind_addr).await?;
-    info!(%bind_addr, "control plane API listening");
+    info!(%bind_addr, "control plane listening");
     axum::serve(listener, app).await?;
     Ok(())
 }

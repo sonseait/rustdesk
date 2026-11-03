@@ -5,6 +5,8 @@ info:
   description: |
     The portal consumes this contract through the generated TypeScript client.
     Cookie-authenticated mutations require a same-origin request.
+    The combined container serves the portal at / and this API at /api on
+    port 8080. Direct API paths without /api remain available to managed clients.
 servers:
   - url: /api
 paths:

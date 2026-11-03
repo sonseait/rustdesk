@@ -3,7 +3,7 @@ FROM rust:1.88-bookworm AS build
 WORKDIR /src
 COPY server ./server
 COPY libs ./libs
-COPY cp ./cp
+COPY controlplane-api ./controlplane-api
 RUN cargo build --manifest-path server/Cargo.toml --release --bin hbbs --bin hbbr --bin rustdesk-utils
 
 FROM debian:bookworm-slim

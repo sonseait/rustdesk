@@ -14,7 +14,7 @@ The target is a self-hosted, single-tenant managed remote-access platform:
 - one in-tree copy of `hbb_common` shared by client and server.
 
 The repository starts with the RustDesk client, `server/`, the shared
-`libs/hbb_common`, `cp/`, and `cp/ui/`. It is treated as a new project;
+`libs/hbb_common`, `controlplane-api/`, and `controlplane-ui/`. It is treated as a new project;
 there are no source-repository migration, history-preservation, or archival
 requirements.
 
@@ -25,11 +25,12 @@ paths.
 
 ```text
 rustdesk/                              # one Git repository / monorepo root
-  src/, flutter/, libs/, ...            # existing client source
+  desktop/                              # RustDesk client workspace
+    src/, flutter/, libs/, ...
   libs/hbb_common/                      # normal tracked directory, not submodule
   server/                               # RustDesk data-plane service
     src/, docs/, docker/, ...
-  cp/                                   # Rust control-plane workspace
+  controlplane-api/                     # Rust control-plane workspace
     crates/
       api/
       domain/
@@ -38,7 +39,7 @@ rustdesk/                              # one Git repository / monorepo root
       protocol/
       node-agent/
     migrations/
-  cp/ui/                                # React administration portal
+  controlplane-ui/                      # React administration portal
   docs/
     architecture/
     adr/
@@ -53,10 +54,9 @@ target platforms, build scripts, and release profiles. A single Cargo resolver
 would create unrelated upgrade pressure and make client builds needlessly
 coupled to server/control-plane changes.
 
-- Keep the client Cargo workspace at the monorepo root.
+- Keep `desktop/Cargo.toml` as an independent Cargo workspace.
 - Keep `server/Cargo.toml` as an independent Cargo workspace.
-- Keep `cp/` as an independent Cargo workspace.
-- Add `server` and `cp` to the root workspace `exclude` list.
+- Keep `controlplane-api/` as an independent Cargo workspace.
 - Use normal path dependencies to the single `libs/hbb_common` directory:
   - client: `../libs/hbb_common`;
   - server: `../libs/hbb_common`.
@@ -116,7 +116,7 @@ entrypoints for all independently releasable workspaces.
 
 ## Phase 2: bootstrap the Rust control plane (completed)
 
-Build `cp/` as a separate Rust workspace.
+Build `controlplane-api/` as a separate Rust workspace.
 
 1. Create crates for Axum API, domain services, SQLx/PostgreSQL access, auth,
    shared protocol signing/verification, and a node agent.
@@ -210,8 +210,8 @@ incident response.
 - A mandatory integration workflow runs control plane + hbbs + hbbr + two
   managed test clients and exercises enrollment, direct session, relay session,
   denial, revocation, and replay rejection.
-- Use separate release tags/artifacts initially: `client/v*`, `server/v*`, and
-  `cp/v*`; the root tag only marks a tested platform bundle.
+- Use separate release tags/artifacts initially: `desktop/v*`, `server/v*`, and
+  `controlplane-api/v*`; the root tag only marks a tested platform bundle.
 - Maintain a published compatibility table. Block a release when a protocol
   change has no migration path for the supported client/server versions.
 

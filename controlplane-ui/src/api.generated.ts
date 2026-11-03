@@ -1,5 +1,5 @@
 /*
- * Generated from ../cp/openapi.yaml. Keep this file deliberately small: it
+ * Generated from ../controlplane-api/openapi.yaml. Keep this file deliberately small: it
  * centralizes cookie handling and gives portal code one typed transport seam.
  */
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? '/api'
