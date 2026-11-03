@@ -41,6 +41,27 @@ jobs:
           Write-Host "Using Git Bash: $gitBash"
           & $gitBash --version
           $gitBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Install jq for Flutter setup
+        run: |
+          $toolsRoot = $env:RUNNER_TOOL_CACHE
+          if (!$toolsRoot) {
+            $toolsRoot = Join-Path $env:RUNNER_TEMP 'tools'
+          }
+          $jqDir = Join-Path $toolsRoot 'jq/1.8.1/x64'
+          $jqExe = Join-Path $jqDir 'jq.exe'
+          $expectedHash = '23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334'
+          New-Item -ItemType Directory -Force $jqDir | Out-Null
+          if (!(Test-Path $jqExe) -or (Get-FileHash $jqExe -Algorithm SHA256).Hash -ne $expectedHash) {
+            Invoke-WebRequest -Uri 'https://github.com/jqlang/jq/releases/download/jq-1.8.1/jq-windows-amd64.exe' -OutFile $jqExe
+          }
+          if ((Get-FileHash $jqExe -Algorithm SHA256).Hash -ne $expectedHash) {
+            throw 'The downloaded jq executable failed SHA-256 verification.'
+          }
+          & $jqExe --version
+          $jqDir | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Verify jq is available to Git Bash
+        shell: bash
+        run: jq --version
       - uses: dtolnay/rust-toolchain@stable
       - uses: subosito/flutter-action@v2
         with:
