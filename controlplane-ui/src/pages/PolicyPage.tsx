@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button, Card, Group, NumberInput, Select, SimpleGrid, Stack, Switch, Text, TextInput } from '@mantine/core'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
+import { Save, ShieldCheck, SlidersHorizontal } from 'lucide-react'
+import { QueryFeedback } from '../components/ResourcePanel'
 import { z } from 'zod'
 import {
   getCurrentServerConfig,
@@ -34,17 +36,28 @@ export function PolicyPage({ user }: { user: CurrentUser | null }) {
   const [policy, setPolicy] = useState(defaultPolicy)
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    if (!user) return
+    let active = true
+    setLoading(true)
+    getServerPolicy().then((next) => { if (active) { setPolicy(next); setLoaded(true) } }).catch((reason) => { if (active) setMessage(reason instanceof Error ? reason.message : 'Unable to load policy.') }).finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [user])
 
   if (!user) return <SignInRequired title="Server policy" />
 
   async function load() {
+    setLoading(true)
+    setMessage('')
     try {
       setPolicy(await getServerPolicy())
       setLoaded(true)
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : 'Unable to load policy.')
-    }
+    } finally { setLoading(false) }
   }
 
   async function save() {
@@ -70,20 +83,19 @@ export function PolicyPage({ user }: { user: CurrentUser | null }) {
   }
 
   return (
-    <Stack maw={760} mx="auto" gap="lg">
+    <Stack className="page-stack" maw={960} mx="auto" gap="lg">
       <PageHeader
         eyebrow="CURRENT RUSTDESK SERVER"
         title="Server policy"
-        description="Anonymous limits are independent from managed-device authorization."
+        description="Set the boundaries for your remote workspace and manage client configuration."
       />
 
       {!loaded ? (
-        <Button variant="light" onClick={load}>
-          Load current policy
-        </Button>
+        <Card withBorder><Stack><Text fw={700}>Anonymous access</Text><Text size="sm" c="dimmed">{loading ? 'Loading your current policy…' : message || 'Load the current policy to review access limits.'}</Text><Button variant="light" loading={loading} onClick={load} w="fit-content">{message ? 'Try again' : 'Load current policy'}</Button></Stack></Card>
       ) : (
-        <Card withBorder>
+        <Card withBorder className="policy-section">
           <Stack>
+            <div className="policy-section-heading"><span className="panel-icon"><ShieldCheck size={18} /></span><div><Text fw={700}>Anonymous access</Text><Text size="xs" c="dimmed">Control access for devices outside your managed workspace.</Text></div></div>
             <Switch
               checked={policy.enabled}
               onChange={(event) => setPolicy({ ...policy, enabled: event.currentTarget.checked })}
@@ -122,7 +134,7 @@ export function PolicyPage({ user }: { user: CurrentUser | null }) {
               </Text>
             )}
             <Group justify="flex-end">
-              <Button loading={saving} onClick={save}>
+              <Button loading={saving} onClick={save} leftSection={<Save size={15} />}>
                 Save policy
               </Button>
             </Group>
@@ -159,15 +171,16 @@ function ManagedDeploymentConfig() {
   const selectedIssuer = issuer ?? config.data?.credential_issuer_public_key ?? ''
 
   return (
-    <Card withBorder>
+    <Card withBorder className="policy-section">
       <Stack>
+        <QueryFeedback query={config} label="managed client configuration" />
         <Group justify="space-between">
-          <div>
+          <Group gap="sm" wrap="nowrap"><span className="panel-icon"><SlidersHorizontal size={18} /></span><div>
             <Text fw={700}>Managed client deployment</Text>
             <Text size="sm" c="dimmed">
               Clients fetch this signed hbbs/hbbr configuration every five minutes.
             </Text>
-          </div>
+          </div></Group>
           <Text size="sm" c="dimmed">
             Revision {config.data?.revision ?? '--'}
           </Text>
@@ -207,6 +220,8 @@ function ManagedDeploymentConfig() {
         <Group justify="flex-end">
           <Button
             loading={save.isPending}
+            disabled={config.isLoading || config.isError}
+            leftSection={<Save size={15} />}
             onClick={() =>
               save.mutate({
                 managed_mode: selectedMode as 'off' | 'optional' | 'required',

@@ -106,3 +106,14 @@ export async function createEnrollmentToken(input: { label: string; expires_in_h
   return response.json() as Promise<CreatedEnrollmentToken>
 }
 export async function revokeDevice(id: string) { const response = await fetch(`${apiBaseUrl}/v1/devices/${id}/revoke`, { method: 'POST', credentials: 'include' }); if (!response.ok) throw new Error('Unable to revoke device.') }
+export async function restoreDevice(id: string) {
+  const response = await fetch(`${apiBaseUrl}/v1/devices/${id}/restore`, { method: 'POST', credentials: 'include' })
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}))
+    throw new Error(body.error ?? 'Unable to restore device access.')
+  }
+}
+export async function revokeEnrollmentToken(id: string) {
+  const response = await fetch(`${apiBaseUrl}/v1/enrollment-tokens/${id}`, { method: 'DELETE', credentials: 'include' })
+  if (!response.ok) throw new Error('Unable to revoke enrollment token.')
+}

@@ -50,17 +50,6 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
     } else {
         crate::read_custom_client(custom_client_config);
     }
-    #[cfg(feature = "managed-only")]
-    if let Err(error) = crate::managed_client::bootstrap_managed_only() {
-        log::warn!("managed bootstrap failed: {error}");
-    }
-    #[cfg(feature = "managed-only")]
-    std::thread::spawn(|| loop {
-        std::thread::sleep(Duration::from_secs(300));
-        if let Err(error) = crate::managed_client::sync_deployment_config() {
-            log::warn!("managed configuration refresh failed: {error}");
-        }
-    });
     #[cfg(target_os = "android")]
     {
         // flexi_logger can't work when android_logger initialized.
@@ -92,6 +81,7 @@ fn initialize(app_dir: &str, custom_client_config: &str) {
         // core_main's init_log does not work for flutter since it is only applied to its load_library in main.c
         hbb_common::init_log(false, "flutter_ffi");
     }
+    crate::managed_client::start_snapshot_reader();
 }
 
 #[inline]
@@ -106,7 +96,7 @@ pub fn stop_global_event_stream(app_type: String) {
 
 /// Returns managed enrollment state without exposing private key material.
 pub fn managed_get_status() -> SyncReturn<String> {
-    SyncReturn(serde_json::to_string(&crate::managed_client::status()).unwrap_or_else(|_| "{}".to_owned()))
+    SyncReturn(crate::managed_client::snapshot_json())
 }
 
 pub fn managed_capability_allowed(capability: String) -> bool {
@@ -134,7 +124,8 @@ pub fn managed_heartbeat() -> String {
 }
 
 pub fn managed_renew_credential() -> String {
-    crate::managed_client::renew_credential().err().unwrap_or_default()
+    crate::managed_client::renew_credential()
+        .and_then(|_| crate::managed_client::sync_policy()).err().unwrap_or_default()
 }
 
 /// Ticket material stays in Rust until the managed wire protocol carries it.

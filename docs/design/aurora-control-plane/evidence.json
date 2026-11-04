@@ -1,0 +1,37 @@
+{
+  "contract": "contract.md — match the local Flutter Aurora surfaces and preserve the existing control-plane workflows.",
+  "targetViewports": ["1440x1000", "390x844"],
+  "accessibility": {
+    "status": "pass",
+    "evidence": "Chromium Lighthouse snapshot: desktop dark overview and mobile dark policy both scored 100 for accessibility and best practices after fixing dark button contrast and decorative avatar labeling. Keyboard Tab/Enter operated the restore confirmation; visible solid focus outline was measured. Mobile drawer trapped keyboard focus and Escape closed it. A focused table scrolled 40px with ArrowRight. The rendered stylesheet contains a prefers-reduced-motion rule disabling decorative transitions; OS motion-preference switching was not emulated."
+  },
+  "responsive": {
+    "status": "pass",
+    "evidence": "Rendered all seven routes at 1440x1000 and 390x844. documentElement.scrollWidth never exceeded innerWidth. Mobile navigation, stacked panels and policy fields fit their containers. Long member names wrapped inside the table. Wide tables scroll in their own keyboard-focusable viewports."
+  },
+  "contentStates": {
+    "loading": { "status": "pass", "evidence": "Injected a two-second local HTTP delay and captured the live restoring-session loader inside the persistent shell." },
+    "empty": { "status": "pass", "evidence": "Returned empty device/token collections; both panels retained headers and displayed enrollment instructions without overlapping table headings." },
+    "error": { "status": "pass", "evidence": "Local devices endpoint returned 503. After query retries, the panel showed an alert and Try again. Restoring the fixture and pressing Try again brought the three device rows back." },
+    "partial": { "status": "pass", "evidence": "With devices failing, the successfully loaded enrollment-token panel remained visible. Unavailable records were not labeled as an empty collection." },
+    "success": { "status": "pass", "evidence": "Against local HTTP fixtures: restoring a device removed its Revoked badge and displayed confirmation; token creation updated the token table, revealed its fixture secret and disabled repeat submission; policy save and configuration publication displayed success feedback and revision advanced from 12 to 13." },
+    "permission": { "status": "pass", "evidence": "Returned 401 for session restoration. Devices showed the signed-out boundary with Sign in to continue; that button opened the labeled login dialog. Inspected the mobile permission panel and desktop login dialog." }
+  },
+  "renderedEvidence": [
+    { "viewport": "1440x1000", "artifact": "desktop-overview-final.png", "observation": "Light Aurora overview with floating sidebar, terracotta primary panel, real fixture metrics and recent devices." },
+    { "viewport": "1440x1000", "artifact": "desktop-dark.png", "observation": "Dark Aurora overview, warm panel borders and muted text. Appearance persisted across a full reload." },
+    { "viewport": "1440x1000", "artifact": "desktop-devices.png", "observation": "Device and enrollment-token tables with shared panel styling and existing revoke/restore actions." },
+    { "viewport": "390x844", "artifact": "mobile-devices-final.png", "observation": "Mobile devices page: 44px main controls, full-width search, stable horizontally scrollable device columns and no body overflow." },
+    { "viewport": "390x844", "artifact": "mobile-overview.png", "observation": "Dark mobile overview with stacked feature, identity and metric panels." },
+    { "viewport": "390x844", "artifact": "mobile-permission.png", "observation": "Signed-out permission panel retains the Aurora shell and exposes the sign-in action." },
+    { "viewport": "1440x1000", "artifact": "desktop-empty.png", "observation": "Both empty operational tables retain readable resource-specific guidance." },
+    { "viewport": "1440x1000", "artifact": "desktop-partial-error.png", "observation": "Device failure with retry while enrollment tokens remain available." },
+    { "viewport": "1440x1000", "artifact": "desktop-loading.png", "observation": "Restoring-session progress inside the persistent shell." },
+    { "viewport": "1440x1000", "artifact": "desktop-login.png", "observation": "Aurora login dialog with labeled fields, close control and existing MFA-code input." }
+  ],
+  "limitations": [
+    "These are frontend checks against local HTTP fixtures, not a live API authorization, enrollment or security test.",
+    "The optional owner-mock search was skipped because the Postman CLI is signed out; fixture shapes were taken from the local API types and OpenAPI contract.",
+    "Production build passes with Vite's advisory for a JavaScript chunk over 500 kB."
+  ]
+}

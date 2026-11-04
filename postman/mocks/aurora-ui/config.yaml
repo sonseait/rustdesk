@@ -1,0 +1,10 @@
+version: 1
+name: aurora-ui
+slug: aurora-ui
+protocol: http
+port: 4010
+interceptRequests: true
+scenarios:
+  - name: default
+    path: ./default.js
+    default: true

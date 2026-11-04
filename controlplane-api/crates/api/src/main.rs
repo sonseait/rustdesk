@@ -21,7 +21,7 @@ use control_plane_auth::{hash_password, hash_session_token, new_session_token, v
 use control_plane_db::{
     accept_heartbeat, active_device_exists, active_device_id_for_rustdesk_id, claim_enrollment,
     confirm_totp, connect, consume_totp_counter, create_enrollment_token, create_initial_admin,
-    create_session, current_server_config, device_credential_subject, device_public_key,
+    create_session, current_server_config,
     find_active_user_by_email, get_server_policy, has_users, is_admin, list_audit_events,
     list_devices, list_enrollment_tokens, list_remote_sessions, list_roles, list_server_nodes,
     list_users, migrate, record_remote_session_authorized, record_user_audit_event,
@@ -48,6 +48,10 @@ use tracing::{error, info};
 
 mod healthcheck;
 mod portal;
+#[path = "../../../../libs/managed_claim.rs"]
+mod managed_claim;
+#[cfg(test)]
+mod recovery_tests;
 
 #[derive(Clone)]
 struct AppState {
@@ -112,12 +116,16 @@ struct CreatedEnrollmentToken {
 }
 #[derive(Deserialize)]
 struct Heartbeat {
+    #[serde(default = "legacy_proof_version")]
+    proof_version: u16,
     timestamp: i64,
     nonce: String,
     signature: String,
     #[serde(default)]
     metadata: Option<DeviceHeartbeatMetadata>,
 }
+
+fn legacy_proof_version() -> u16 { 1 }
 
 #[derive(Deserialize)]
 struct SessionTicketRequest {
@@ -241,12 +249,8 @@ async fn main() -> Result<()> {
         .route("/v1/enrollment-tokens/:id", delete(revoke_token))
         .route("/v1/devices", get(devices))
         .route("/v1/devices/:id/revoke", post(revoke_managed_device))
-        .route("/v1/enrollment/claim", post(claim_device))
-        .route("/v1/devices/:id/heartbeat", post(heartbeat))
-        .route("/v1/devices/:id/credential/renew", post(renew_credential))
-        .route("/v1/device-policy", post(device_policy))
-        .route("/v1/managed/config", post(managed_config))
-        .route("/v1/session-tickets", post(create_session_ticket))
+        .route("/v1/devices/:id/restore", post(restore_managed_device))
+        .merge(managed_routes())
         .with_state(AppState {
             database,
             bootstrap_token: Arc::from(bootstrap_token),
@@ -751,6 +755,28 @@ async fn revoke_managed_device(
     }
 }
 
+async fn restore_managed_device(
+    State(state): State<AppState>, headers: HeaderMap, Path(device_id): Path<uuid::Uuid>,
+) -> Result<StatusCode,ApiError> {
+    require_same_origin(&headers)?;
+    let user = require_admin(&state,&headers).await?;
+    if control_plane_db::restore_device(&state.database,user.id,device_id).await.map_err(ApiError::database)? {
+        Ok(StatusCode::NO_CONTENT)
+    } else { Err(ApiError::not_found()) }
+}
+
+fn managed_routes() -> Router<AppState> {
+    Router::new()
+        .route("/v1/enrollment/claim", post(claim_device))
+        .route("/v1/enrollment/claim-v2", post(claim_device_v2))
+        .route("/v1/devices/:id/heartbeat", post(heartbeat))
+        .route("/v1/devices/:id/credential/renew", post(renew_credential))
+        .route("/v1/devices/:id/recovery", post(recover_device_access))
+        .route("/v1/device-policy", post(device_policy))
+        .route("/v1/managed/config", post(managed_config))
+        .route("/v1/session-tickets", post(create_session_ticket))
+}
+
 async fn claim_device(
     State(state): State<AppState>,
     Json(claim): Json<EnrollmentClaim>,
@@ -775,40 +801,30 @@ async fn claim_device(
     Ok((StatusCode::CREATED, Json(device)))
 }
 
+async fn claim_device_v2(
+    State(state): State<AppState>,
+    Json(claim): Json<managed_claim::EnrollmentV2>,
+) -> Result<(StatusCode, Json<Device>), ApiError> {
+    claim.verify(Utc::now().timestamp()).map_err(ApiError::managed)?;
+    let body = EnrollmentClaim { token: claim.token.clone(), display_name: claim.display_name.clone(),
+        hostname: claim.hostname.clone(), operating_system: claim.operating_system.clone(),
+        client_version: claim.client_version.clone(), public_key_fingerprint: claim.public_key_fingerprint.clone(),
+        public_key: claim.public_key.clone(), rustdesk_id: claim.rustdesk_id.clone() };
+    let device = control_plane_db::claim_enrollment_v2(&state.database, claim.request_id, &claim.binding(),
+        &hash_session_token(&claim.token), &body).await.map_err(ApiError::database)?;
+    Ok((StatusCode::CREATED, Json(device)))
+}
+
 async fn heartbeat(
     State(state): State<AppState>,
     Path(device_id): Path<uuid::Uuid>,
     Json(request): Json<Heartbeat>,
 ) -> Result<StatusCode, ApiError> {
-    if (Utc::now().timestamp() - request.timestamp).abs() > 300 {
-        return Err(ApiError::unauthorized());
-    }
     if let Some(metadata) = &request.metadata {
-        metadata
-            .validate()
-            .map_err(|error| ApiError::bad_request(error.to_string()))?;
+        metadata.validate().map_err(|e| ApiError::bad_request(e.to_string()))?;
     }
-    let nonce = request
-        .nonce
-        .parse::<uuid::Uuid>()
-        .map_err(|_| ApiError::bad_request("invalid heartbeat nonce".into()))?;
-    let public_key = device_public_key(&state.database, device_id)
-        .await
-        .map_err(ApiError::database)?
-        .ok_or_else(ApiError::unauthorized)?;
-    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-    let key = hex::decode(public_key)
-        .ok()
-        .and_then(|bytes| <[u8; 32]>::try_from(bytes.as_slice()).ok())
-        .and_then(|bytes| VerifyingKey::from_bytes(&bytes).ok())
-        .ok_or_else(ApiError::unauthorized)?;
-    let signature = hex::decode(request.signature)
-        .ok()
-        .and_then(|bytes| Signature::from_slice(&bytes).ok())
-        .ok_or_else(ApiError::unauthorized)?;
-    let payload = format!("{device_id}:{}:{}", request.timestamp, request.nonce);
-    key.verify(payload.as_bytes(), &signature)
-        .map_err(|_| ApiError::unauthorized())?;
+    let nonce = request.nonce.parse::<uuid::Uuid>().map_err(|_| ApiError::managed("invalid_device_proof"))?;
+    authenticated_device_request(&state.database, device_id, &request, "heartbeat").await?;
     if !accept_heartbeat(&state.database, device_id, nonce, request.metadata.as_ref())
         .await
         .map_err(ApiError::database)?
@@ -827,33 +843,10 @@ async fn renew_credential(
         .credential_signing_key
         .as_ref()
         .ok_or_else(ApiError::service_unavailable)?;
-    if (Utc::now().timestamp() - request.timestamp).abs() > 300 {
-        return Err(ApiError::unauthorized());
-    }
-    let nonce = request
-        .nonce
-        .parse::<uuid::Uuid>()
-        .map_err(|_| ApiError::bad_request("invalid renewal nonce".into()))?;
-    let (public_key, public_key_fingerprint, rustdesk_id) =
-        device_credential_subject(&state.database, device_id)
-            .await
-            .map_err(ApiError::database)?
-            .ok_or_else(ApiError::unauthorized)?;
-    use ed25519_dalek::{Signature, Signer, Verifier, VerifyingKey};
-    let key = hex::decode(public_key.clone())
-        .ok()
-        .and_then(|bytes| <[u8; 32]>::try_from(bytes.as_slice()).ok())
-        .and_then(|bytes| VerifyingKey::from_bytes(&bytes).ok())
-        .ok_or_else(ApiError::unauthorized)?;
-    let signature = hex::decode(request.signature)
-        .ok()
-        .and_then(|bytes| Signature::from_slice(&bytes).ok())
-        .ok_or_else(ApiError::unauthorized)?;
-    key.verify(
-        format!("{device_id}:{}:{}", request.timestamp, request.nonce).as_bytes(),
-        &signature,
-    )
-    .map_err(|_| ApiError::unauthorized())?;
+    let nonce = request.nonce.parse::<uuid::Uuid>().map_err(|_| ApiError::managed("invalid_device_proof"))?;
+    let (_, public_key_fingerprint, rustdesk_id) =
+        authenticated_device_request(&state.database, device_id, &request, "credential-renew").await?;
+    use ed25519_dalek::Signer;
     // Consuming the nonce prevents a captured renewal request being replayed.
     if !accept_heartbeat(&state.database, device_id, nonce, None)
         .await
@@ -876,6 +869,50 @@ async fn renew_credential(
         signature: hex::encode(signing_key.sign(&payload).to_bytes()),
         issuer_public_key: hex::encode(signing_key.verifying_key().as_bytes()),
     }))
+}
+
+fn validate_recovery_proof(device_id: uuid::Uuid, request: &Heartbeat, public_key: &str) -> Result<(),ApiError> {
+    if request.proof_version != 2 || request.metadata.is_some()
+        || request.nonce.parse::<uuid::Uuid>().map_or(true,|nonce| nonce.is_nil()) {
+        return Err(ApiError::managed("invalid_device_proof"));
+    }
+    if Utc::now().timestamp().abs_diff(request.timestamp) > 300 { return Err(ApiError::managed("clock_skew")); }
+    let payload = managed_claim::device_proof(&device_id.to_string(),request.timestamp,&request.nonce,"device-recovery",&serde_json::Value::Null);
+    verify_signature(public_key,&request.signature,payload.as_bytes())
+}
+
+async fn recover_device_access(
+    State(state): State<AppState>, Path(device_id): Path<uuid::Uuid>, Json(request): Json<Heartbeat>,
+) -> Result<Json<managed_claim::SignedRecovery<SignedDeviceCredential,SignedDevicePolicy>>,ApiError> {
+    use ed25519_dalek::Signer;
+    let key = state.credential_signing_key.as_ref().ok_or_else(ApiError::service_unavailable)?;
+    // Reject legacy proofs before identity lookup; recovery never accepts the
+    // old purpose-less payload used by legacy heartbeat/renewal.
+    if request.proof_version != 2 || request.metadata.is_some() {
+        return Err(ApiError::managed("invalid_device_proof"));
+    }
+    if Utc::now().timestamp().abs_diff(request.timestamp) > 300 { return Err(ApiError::managed("clock_skew")); }
+    let nonce = request.nonce.parse::<uuid::Uuid>().map_err(|_| ApiError::managed("invalid_device_proof"))?;
+    if nonce.is_nil() { return Err(ApiError::managed("invalid_device_proof")); }
+    let (public_key,_,_,_) = control_plane_db::device_identity(&state.database,device_id).await
+        .map_err(ApiError::database)?.ok_or_else(|| ApiError::managed("invalid_device_proof"))?;
+    validate_recovery_proof(device_id,&request,&public_key)?;
+    let (fingerprint,rustdesk_id) = control_plane_db::accept_device_recovery(&state.database,device_id,nonce)
+        .await.map_err(ApiError::database)?.ok_or_else(|| ApiError::conflict("device recovery replay detected"))?;
+    let now = Utc::now();
+    let issuer = hex::encode(key.verifying_key().as_bytes());
+    let credential = DeviceCredentialClaims{version:MANAGED_PROTOCOL_VERSION,device_id,rustdesk_id,
+        public_key_fingerprint:fingerprint,issued_at:now,expires_at:now+Duration::hours(24)};
+    let credential = SignedDeviceCredential{signature:hex::encode(key.sign(&serde_json::to_vec(&credential).map_err(|_| ApiError::internal())?).to_bytes()),
+        claims:credential,issuer_public_key:issuer.clone()};
+    let policy = DevicePolicyClaims{version:MANAGED_PROTOCOL_VERSION,device_id,revision:1,
+        expires_at:now+Duration::hours(4),capabilities:vec!["remote-control".into()]};
+    let policy = SignedDevicePolicy{signature:hex::encode(key.sign(&serde_json::to_vec(&policy).map_err(|_| ApiError::internal())?).to_bytes()),
+        claims:policy,issuer_public_key:issuer.clone()};
+    let claims = managed_claim::RecoveryClaims{version:1,purpose:"device-recovery".into(),device_id:device_id.to_string(),
+        nonce:request.nonce,timestamp:request.timestamp,issued_at:now.timestamp(),expires_at:now.timestamp()+60,credential,policy};
+    Ok(Json(managed_claim::SignedRecovery{signature:hex::encode(key.sign(&serde_json::to_vec(&claims).map_err(|_| ApiError::internal())?).to_bytes()),
+        claims,issuer_public_key:issuer}))
 }
 
 async fn create_session_ticket(
@@ -1017,6 +1054,33 @@ async fn managed_config(
     }))
 }
 
+async fn authenticated_device_request(database: &Database, device_id: uuid::Uuid,
+    request: &Heartbeat, purpose: &str) -> Result<(String, String, String), ApiError> {
+    if Utc::now().timestamp().abs_diff(request.timestamp) > 300 { return Err(ApiError::managed("clock_skew")); }
+    let (public_key, fingerprint, rustdesk_id, revoked) = control_plane_db::device_identity(database, device_id)
+        .await.map_err(ApiError::database)?.ok_or_else(|| ApiError::managed("invalid_device_proof"))?;
+    let metadata = serde_json::to_value(&request.metadata).map_err(|_| ApiError::internal())?;
+    let payload = match request.proof_version {
+        1 => format!("{device_id}:{}:{}", request.timestamp, request.nonce),
+        2 => managed_claim::device_proof(&device_id.to_string(), request.timestamp, &request.nonce, purpose, &metadata),
+        _ => return Err(ApiError::managed("invalid_device_proof")),
+    };
+    verify_signature(&public_key, &request.signature, payload.as_bytes())?;
+    if revoked { return Err(ApiError::managed("device_revoked")); }
+    Ok((public_key, fingerprint, rustdesk_id))
+}
+
+fn verify_signature(public_key: &str, signature: &str, payload: &[u8]) -> Result<(), ApiError> {
+    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+    let invalid = || ApiError::managed("invalid_device_proof");
+    let bytes = hex::decode(public_key).map_err(|_| invalid())?;
+    let bytes: [u8;32] = bytes.try_into().map_err(|_| invalid())?;
+    let key = VerifyingKey::from_bytes(&bytes).map_err(|_| invalid())?;
+    let signature = hex::decode(signature).map_err(|_| invalid())?;
+    let signature = Signature::from_slice(&signature).map_err(|_| invalid())?;
+    key.verify(payload, &signature).map_err(|_| invalid())
+}
+
 async fn verify_device_proof(
     database: &Database,
     device_id: uuid::Uuid,
@@ -1025,30 +1089,12 @@ async fn verify_device_proof(
     signature: &str,
     purpose: &str,
 ) -> Result<(), ApiError> {
-    if (Utc::now().timestamp() - timestamp).abs() > 300 {
-        return Err(ApiError::unauthorized());
-    }
-    let public_key = device_public_key(database, device_id)
-        .await
-        .map_err(ApiError::database)?
-        .ok_or_else(ApiError::unauthorized)?;
-    let bytes = hex::decode(public_key).map_err(|_| ApiError::unauthorized())?;
-    let bytes: [u8; 32] = bytes
-        .as_slice()
-        .try_into()
-        .map_err(|_| ApiError::unauthorized())?;
-    let key =
-        ed25519_dalek::VerifyingKey::from_bytes(&bytes).map_err(|_| ApiError::unauthorized())?;
-    let signature = hex::decode(signature)
-        .ok()
-        .and_then(|bytes| ed25519_dalek::Signature::from_slice(&bytes).ok())
-        .ok_or_else(ApiError::unauthorized)?;
-    use ed25519_dalek::Verifier;
-    key.verify(
-        format!("{device_id}:{timestamp}:{nonce}:{purpose}").as_bytes(),
-        &signature,
-    )
-    .map_err(|_| ApiError::unauthorized())
+    if Utc::now().timestamp().abs_diff(timestamp) > 300 { return Err(ApiError::managed("clock_skew")); }
+    let (key, _, _, revoked) = control_plane_db::device_identity(database, device_id).await
+        .map_err(ApiError::database)?.ok_or_else(|| ApiError::managed("invalid_device_proof"))?;
+    verify_signature(&key, signature, format!("{device_id}:{timestamp}:{nonce}:{purpose}").as_bytes())?;
+    if revoked { return Err(ApiError::managed("device_revoked")); }
+    Ok(())
 }
 
 async fn verify_device_credential(
@@ -1057,36 +1103,34 @@ async fn verify_device_credential(
     credential: &SignedDeviceCredential,
 ) -> Result<uuid::Uuid, ApiError> {
     use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-    if credential.claims.version != MANAGED_PROTOCOL_VERSION
-        || credential.claims.expires_at <= Utc::now()
-    {
-        return Err(ApiError::unauthorized());
+    if credential.claims.expires_at <= Utc::now() {
+        return Err(ApiError::managed("credential_expired"));
+    }
+    if credential.claims.version != MANAGED_PROTOCOL_VERSION {
+        return Err(ApiError::managed("invalid_device_proof"));
     }
     let issuer_bytes = hex::decode(&credential.issuer_public_key)
         .ok()
         .and_then(|bytes| <[u8; 32]>::try_from(bytes.as_slice()).ok())
-        .ok_or_else(ApiError::unauthorized)?;
+        .ok_or_else(|| ApiError::managed("invalid_device_proof"))?;
     if issuer_bytes != *signing_key.verifying_key().as_bytes() {
-        return Err(ApiError::unauthorized());
+        return Err(ApiError::managed("invalid_device_proof"));
     }
-    let issuer = VerifyingKey::from_bytes(&issuer_bytes).map_err(|_| ApiError::unauthorized())?;
+    let issuer = VerifyingKey::from_bytes(&issuer_bytes).map_err(|_| ApiError::managed("invalid_device_proof"))?;
     let signature = hex::decode(&credential.signature)
         .ok()
         .and_then(|bytes| Signature::from_slice(&bytes).ok())
-        .ok_or_else(ApiError::unauthorized)?;
+        .ok_or_else(|| ApiError::managed("invalid_device_proof"))?;
     let payload = serde_json::to_vec(&credential.claims).map_err(|_| ApiError::internal())?;
     issuer
         .verify(&payload, &signature)
-        .map_err(|_| ApiError::unauthorized())?;
-    let (_, fingerprint, _) = device_credential_subject(database, credential.claims.device_id)
-        .await
-        .map_err(ApiError::database)?
-        .filter(|(_, fingerprint, rustdesk_id)| {
-            fingerprint == &credential.claims.public_key_fingerprint
-                && rustdesk_id == &credential.claims.rustdesk_id
-        })
-        .ok_or_else(ApiError::unauthorized)?;
-    let _ = fingerprint;
+        .map_err(|_| ApiError::managed("invalid_device_proof"))?;
+    let (_, fingerprint, rustdesk_id, revoked) = control_plane_db::device_identity(database, credential.claims.device_id)
+        .await.map_err(ApiError::database)?.ok_or_else(|| ApiError::managed("invalid_device_proof"))?;
+    if fingerprint != credential.claims.public_key_fingerprint || rustdesk_id != credential.claims.rustdesk_id {
+        return Err(ApiError::managed("invalid_device_proof"));
+    }
+    if revoked { return Err(ApiError::managed("device_revoked")); }
     Ok(credential.claims.device_id)
 }
 
@@ -1279,12 +1323,17 @@ async fn add_security_headers(
 struct ApiError {
     status: StatusCode,
     message: String,
+    code: &'static str,
 }
 
 impl ApiError {
+    fn managed(code: &'static str) -> Self {
+        Self { status: StatusCode::UNAUTHORIZED, message: code.replace('_', " "), code }
+    }
     fn bad_request(message: String) -> Self {
         Self {
             status: StatusCode::BAD_REQUEST,
+            code: "invalid_request",
             message,
         }
     }
@@ -1292,29 +1341,34 @@ impl ApiError {
         Self {
             status: StatusCode::UNAUTHORIZED,
             message: "unauthorized".into(),
+            code: "unauthorized",
         }
     }
     fn mfa_required() -> Self {
         Self {
             status: StatusCode::UNAUTHORIZED,
             message: "multi-factor authentication code is required".into(),
+            code: "mfa_required",
         }
     }
     fn mfa_unavailable() -> Self {
         Self {
             status: StatusCode::SERVICE_UNAVAILABLE,
             message: "multi-factor authentication is not configured".into(),
+            code: "temporarily_unavailable",
         }
     }
     fn too_many_requests() -> Self {
         Self {
             status: StatusCode::TOO_MANY_REQUESTS,
             message: "too many login attempts".into(),
+            code: "rate_limited",
         }
     }
     fn conflict(message: &str) -> Self {
         Self {
             status: StatusCode::CONFLICT,
+            code: "identity_conflict",
             message: message.into(),
         }
     }
@@ -1322,21 +1376,28 @@ impl ApiError {
         Self {
             status: StatusCode::FORBIDDEN,
             message: "forbidden".into(),
+            code: "forbidden",
         }
     }
     fn not_found() -> Self {
         Self {
             status: StatusCode::NOT_FOUND,
             message: "not found".into(),
+            code: "not_found",
         }
     }
     fn service_unavailable() -> Self {
         Self {
             status: StatusCode::SERVICE_UNAVAILABLE,
             message: "device credential issuer is not configured".into(),
+            code: "temporarily_unavailable",
         }
     }
     fn database(error: control_plane_db::DatabaseError) -> Self {
+        if let control_plane_db::DatabaseError::Managed(code) = &error {
+            return if *code == "identity_conflict" { Self::conflict("enrollment identity conflicts") }
+                else { Self::managed(code) };
+        }
         if matches!(error, control_plane_db::DatabaseError::ActiveRustDeskId) {
             return Self::conflict(
                 "an active device already uses this RustDesk ID; revoke it before re-enrolling",
@@ -1349,6 +1410,7 @@ impl ApiError {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             message: "internal server error".into(),
+            code: "temporarily_unavailable",
         }
     }
 }
@@ -1357,7 +1419,7 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
         (
             self.status,
-            Json(serde_json::json!({"error": self.message})),
+            Json(serde_json::json!({"error": self.message, "code": self.code})),
         )
             .into_response()
     }
@@ -1366,6 +1428,67 @@ impl IntoResponse for ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn expired_credential_is_not_revocation() {
+        let key = ed25519_dalek::SigningKey::from_bytes(&[7; 32]);
+        let database = sqlx_test_pool();
+        let credential = SignedDeviceCredential {
+            claims: DeviceCredentialClaims {
+                version: 1, device_id: uuid::Uuid::new_v4(), rustdesk_id: "123456789".into(),
+                public_key_fingerprint: "synthetic".into(),
+                issued_at: Utc::now() - Duration::hours(25),
+                expires_at: Utc::now() - Duration::hours(1),
+            },
+            signature: String::new(), issuer_public_key: String::new(),
+        };
+        let error = verify_device_credential(&database, &key, &credential).await.unwrap_err();
+        let bytes = axum::body::to_bytes(error.into_response().into_body(), 4096).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["code"], "credential_expired");
+        assert!(body["error"].is_string());
+    }
+
+    fn sqlx_test_pool() -> Database {
+        // No network is opened: expiration must be rejected before DB access.
+        Database::connect_lazy("postgresql://localhost/managed_test").unwrap()
+    }
+
+    pub(super) fn test_state() -> AppState {
+        AppState { database: sqlx_test_pool(), bootstrap_token: Arc::from("synthetic"),
+            session_ttl: Duration::hours(1), secure_cookie: false,
+            credential_signing_key: Some(ed25519_dalek::SigningKey::from_bytes(&[9;32])),
+            deployment_config_signing_key: None, totp_encryption_key: None, login_attempts: Default::default() }
+    }
+
+    #[tokio::test]
+    async fn claim_v2_rejects_bad_proof_without_mutation() {
+        // A lazy pool cannot accept queries; success establishes rejection before DB access.
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../../docs/architecture/fixtures/managed-enrollment-v2.json")).unwrap();
+        let mut claim: managed_claim::EnrollmentV2 = serde_json::from_value(fixture["claim"].clone()).unwrap();
+        claim.timestamp = Utc::now().timestamp();
+        claim.signature = "00".repeat(64);
+        use tower::ServiceExt;
+        let router = managed_routes().with_state(test_state());
+        let request = axum::http::Request::builder().method("POST").uri("/v1/enrollment/claim-v2")
+            .header("content-type","application/json")
+            .body(axum::body::Body::from(serde_json::to_vec(&claim).unwrap())).unwrap();
+        let response = router.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(),StatusCode::UNAUTHORIZED);
+        let body = axum::body::to_bytes(response.into_body(),4096).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["code"], "invalid_device_proof");
+        let legacy = axum::http::Request::builder().method("POST").uri("/v1/enrollment/claim")
+            .header("content-type","application/json").body(axum::body::Body::from("{}")).unwrap();
+        assert_eq!(router.oneshot(legacy).await.unwrap().status(),StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[test]
+    fn revoked_device_has_explicit_code() {
+        let error = ApiError::database(control_plane_db::DatabaseError::Managed("device_revoked"));
+        assert_eq!(error.code, "device_revoked");
+        assert_eq!(error.status, StatusCode::UNAUTHORIZED);
+    }
 
     #[test]
     fn totp_secrets_are_encrypted_and_codes_verify() {

@@ -6,13 +6,14 @@ COPY controlplane-ui/ ./
 RUN yarn build
 
 FROM rust:1.88-bookworm AS build
-WORKDIR /src
+WORKDIR /src/controlplane-api
 COPY controlplane-api/ ./
+COPY libs/managed_claim.rs /src/libs/managed_claim.rs
 RUN cargo build --locked --release -p control-plane-api
 
 FROM gcr.io/distroless/cc-debian12:nonroot
 WORKDIR /app
-COPY --from=build /src/target/release/control-plane-api /usr/local/bin/control-plane-api
+COPY --from=build /src/controlplane-api/target/release/control-plane-api /usr/local/bin/control-plane-api
 COPY --from=ui-build /ui/dist /app/ui
 ENV UI_DIR=/app/ui
 USER nonroot:nonroot

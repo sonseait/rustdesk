@@ -1,9 +1,21 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_hbb/integration/adapters/service_status_adapter.dart';
+import 'package:flutter_hbb/integration/adapters/managed_client_adapter.dart';
 
 import 'package:flutter_hbb/features/workspace/workspace_view_model.dart';
 import 'package:flutter_hbb/integration/adapters/peer.dart';
 
 void main() {
+  test('managed readiness never fabricates rendezvous connectivity', () {
+    final service = _Service();
+    final managed = _Managed();
+    final model = WorkspaceViewModel(serviceStatus: service, managedClient: managed);
+    expect(model.identity.isManaged, isTrue);
+    expect(model.identity.isOnline, isFalse);
+    expect(model.connectStatus, ConnectStatus.disconnected);
+    model.dispose(); service.dispose(); managed.dispose();
+  });
   group('formatPeerId', () {
     test('groups a numeric id in threes', () {
       expect(formatPeerId('847293160'), '847 293 160');
@@ -104,4 +116,21 @@ void main() {
       ]));
     });
   });
+}
+
+class _Service extends ChangeNotifier implements ServiceStatusAdapter {
+  @override
+  ServiceStatus get status => const ServiceStatus.initial().copyWith(connectStatus: ConnectStatus.disconnected);
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _Managed extends ChangeNotifier implements ManagedClientAdapter {
+  @override
+  ManagedClientStatus get status => const ManagedClientStatus(state: 'ready', managedOnly: true,
+      deviceId: 'test', controlPlaneUrl: '', rendezvousServer: '', relayServer: '',
+      credentialExpiresAt: '2100-01-01T00:00:00Z', policyExpiresAt: '2100-01-01T00:00:00Z',
+      policyState: 'active', lastError: '');
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

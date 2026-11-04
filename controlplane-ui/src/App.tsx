@@ -17,7 +17,11 @@ import { theme } from './theme'
 export default function App() {
   return (
     <HashRouter>
-      <MantineProvider theme={theme}>
+      <MantineProvider theme={theme} defaultColorScheme="light" cssVariablesResolver={() => ({
+        variables: {},
+        light: { '--mantine-color-text': '#2a1a15', '--mantine-color-dimmed': '#806b63', '--mantine-color-body': '#fff9f5' },
+        dark: { '--mantine-color-text': '#f6e9e2', '--mantine-color-dimmed': '#cab6ad', '--mantine-color-body': '#181210' },
+      })}>
         <ControlPlaneApp />
       </MantineProvider>
     </HashRouter>

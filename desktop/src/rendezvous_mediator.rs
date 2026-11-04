@@ -114,6 +114,12 @@ impl RendezvousMediator {
     }
 
     pub async fn start_all() {
+        #[cfg(feature = "managed-only")]
+        while !crate::managed_client::status().ready {
+            // IPC and its lifecycle worker are already running. Never announce
+            // this installation to the default/public deployment during setup.
+            sleep(1.).await;
+        }
         crate::test_nat_type();
         if config::is_outgoing_only() {
             loop {

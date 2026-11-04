@@ -1,19 +1,43 @@
 name: rustdesk
 
 services:
-  rustdesk-cp-api:
-    image: cr.0xh4ck3d.dev/c/rustdesk-cp:latest
+  rustdesk-controlplane:
+    image: ecr.swissy.shop/c/rustdesk-controlplane:latest
     restart: unless-stopped
     environment:
-      SESSION_COOKIE_SECURE: true
+      SESSION_COOKIE_SECURE: "true"
       CONTROL_PLANE_DOMAIN: remote.swissy.shop
       DATABASE_URL: postgres://postgres:tJL4oW4NrIL8li67@db:6432/rustdesk
       BOOTSTRAP_TOKEN: 95077df3a731d57d0b36bf8ca9245ca1cc3227fb48c6518c30d90f9bd0d6a3a2
       BOOTSTRAP_CONFIG_SIGNING_KEY: 275ea38069c2468905bb30b6302a13d57b8aa19dc8ea58f46fee0c49fdd013d1
-      SESSION_TTL_HOURS: 24
+      SESSION_TTL_HOURS: "24"
       DEVICE_CREDENTIAL_SIGNING_KEY: f148e21b69fc426422a2fcd803bd65a197e5106b5f3e3d458d1c865c06a4389b
       TOTP_ENCRYPTION_KEY: f53614fef8ff34a10245490ad1fde5caaf3bab41b71585360c7db02f89eb597a
       RUST_LOG: info,control_plane_api=info
+    expose:
+      - "8080"
+
+  rustdesk-server:
+    image: ecr.swissy.shop/c/rustdesk-server:latest
+    restart: unless-stopped
+    environment:
+      RUST_LOG: info,rustdesk_server=info
+      RELAY: remote.swissy.shop:21117
+    ports:
+      - "21115:21115/tcp"
+      - "21116:21116/tcp"
+      - "21116:21116/udp"
+      - "21117:21117/tcp"
+      - "21118:21118/tcp"
+      - "21119:21119/tcp"
+    volumes:
+      - rustdesk-server-data:/data
+      - type: bind
+        source: /etc/machine-id
+        target: /etc/machine-id
+        read_only: true
+        bind:
+          create_host_path: false
 
 volumes:
   rustdesk-server-data:

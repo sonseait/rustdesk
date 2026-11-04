@@ -252,6 +252,19 @@ impl Client {
         (i32, String),
         bool,
     )> {
+        if crate::managed_client::is_managed_only() {
+            let target = peer.to_owned();
+            let capability = match conn_type {
+                ConnType::FILE_TRANSFER => "file-transfer",
+                ConnType::PORT_FORWARD | ConnType::RDP => "port-forwarding",
+                ConnType::TERMINAL => "terminal",
+                ConnType::VIEW_CAMERA => "view-camera",
+                _ => "remote-control",
+            };
+            hbb_common::tokio::task::spawn_blocking(move || crate::managed_client::prepare_connection(&target, capability))
+                .await.map_err(|e| anyhow!("Managed connection preparation failed: {e}"))?
+                .map_err(|code| anyhow!(code))?;
+        }
         if config::is_incoming_only() && !is_switch_sides_back(conn_type, &interface).await {
             bail!("Incoming only mode");
         }
@@ -470,7 +483,7 @@ impl Client {
             force_relay: interface.is_force_relay(),
             socket_addr_v6: ipv6.1.unwrap_or_default(),
             switch_code,
-            managed_session_ticket: MessageField::from_option(crate::managed_client::session_ticket()),
+            managed_session_ticket: MessageField::from_option(crate::managed_client::session_ticket_for(&peer)),
             ..Default::default()
         });
         for i in 1..=3 {
@@ -882,7 +895,7 @@ impl Client {
                 relay_server: relay_server.clone(),
                 secure,
                 switch_code: switch_code.to_owned(),
-                managed_session_ticket: MessageField::from_option(crate::managed_client::session_ticket()),
+                managed_session_ticket: MessageField::from_option(crate::managed_client::session_ticket_for(peer)),
                 ..Default::default()
             });
             socket.send(&msg_out).await?;
@@ -926,7 +939,7 @@ impl Client {
             id: peer.to_owned(),
             uuid,
             conn_type: conn_type.into(),
-            managed_session_ticket: MessageField::from_option(crate::managed_client::session_ticket()),
+            managed_session_ticket: MessageField::from_option(crate::managed_client::session_ticket_for(peer)),
             ..Default::default()
         });
         conn.send(&msg_out).await?;

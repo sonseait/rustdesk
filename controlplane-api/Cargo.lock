@@ -324,12 +324,14 @@ dependencies = [
  "control-plane-node-agent",
  "control-plane-protocol",
  "ed25519-dalek",
+ "futures-util",
  "hex",
  "http",
  "rand_core 0.6.4",
  "serde",
  "serde_json",
  "sha2",
+ "sqlx",
  "tempfile",
  "tokio",
  "totp-rs",
@@ -357,9 +359,11 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "control-plane-domain",
+ "futures-util",
  "serde_json",
  "sqlx",
  "thiserror 1.0.69",
+ "tokio",
  "uuid",
 ]
 

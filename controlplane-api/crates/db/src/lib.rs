@@ -21,6 +21,8 @@ pub struct UserWithPassword {
 
 #[derive(Debug, Error)]
 pub enum DatabaseError {
+    #[error("managed authorization rejected: {0}")]
+    Managed(&'static str),
     #[error("an active device already uses this RustDesk ID")]
     ActiveRustDeskId,
     #[error("database query failed")]
@@ -505,7 +507,7 @@ pub async fn revoke_device(
 ) -> Result<bool, DatabaseError> {
     let mut transaction = database.begin().await?;
     let changed =
-        sqlx::query("UPDATE devices SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL")
+        sqlx::query("UPDATE devices SET revoked_at = NOW(), access_restored_at = NULL WHERE id = $1 AND revoked_at IS NULL")
             .bind(device_id)
             .execute(&mut *transaction)
             .await?
@@ -517,6 +519,43 @@ pub async fn revoke_device(
     }
     transaction.commit().await?;
     Ok(changed)
+}
+
+/// Idempotent for an existing active row; only a transition emits an audit.
+pub async fn restore_device(database: &Database, actor_user_id: Uuid, device_id: Uuid) -> Result<bool, DatabaseError> {
+    let mut tx = database.begin().await?;
+    let revoked: Option<bool> = sqlx::query_scalar("SELECT revoked_at IS NOT NULL FROM devices WHERE id=$1 FOR UPDATE")
+        .bind(device_id).fetch_optional(&mut *tx).await?;
+    let Some(revoked) = revoked else { return Ok(false); };
+    if revoked {
+        sqlx::query("UPDATE devices SET revoked_at=NULL, access_restored_at=NOW() WHERE id=$1")
+            .bind(device_id).execute(&mut *tx).await.map_err(|error| {
+                if error.as_database_error().is_some_and(|db| db.constraint() == Some("devices_rustdesk_id_active_idx")) {
+                    DatabaseError::ActiveRustDeskId
+                } else { DatabaseError::Query(error) }
+            })?;
+        sqlx::query("INSERT INTO audit_events (id, actor_user_id, action, target_type, target_id) VALUES ($1,$2,'device_restored','device',$3)")
+            .bind(Uuid::new_v4()).bind(actor_user_id).bind(device_id.to_string()).execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
+    Ok(true)
+}
+
+/// Locking the device serializes nonce authorization against revoke/restore.
+/// The caller verifies the immutable retained public key's recovery proof first.
+pub async fn accept_device_recovery(database: &Database, device_id: Uuid, nonce: Uuid)
+    -> Result<Option<(String, String)>, DatabaseError> {
+    let mut tx = database.begin().await?;
+    let row = sqlx::query("SELECT public_key_fingerprint, rustdesk_id, revoked_at IS NOT NULL AS revoked, access_restored_at IS NOT NULL AS restored FROM devices WHERE id=$1 FOR UPDATE")
+        .bind(device_id).fetch_optional(&mut *tx).await?.ok_or(DatabaseError::Managed("invalid_device_proof"))?;
+    if row.get::<bool,_>("revoked") { return Err(DatabaseError::Managed("device_revoked")); }
+    if !row.get::<bool,_>("restored") { return Err(DatabaseError::Managed("invalid_device_proof")); }
+    let accepted = sqlx::query("INSERT INTO device_heartbeat_nonces (nonce,device_id) VALUES ($1,$2) ON CONFLICT DO NOTHING")
+        .bind(nonce).bind(device_id).execute(&mut *tx).await?.rows_affected() == 1;
+    if !accepted { return Ok(None); }
+    let subject = (row.get("public_key_fingerprint"), row.get("rustdesk_id"));
+    tx.commit().await?;
+    Ok(Some(subject))
 }
 
 pub async fn claim_enrollment(
@@ -578,6 +617,72 @@ pub async fn claim_enrollment(
         last_health: json!({}),
         revoked_at: row.get("revoked_at"),
     }))
+}
+
+/// Proof validation happens in the API before this transaction. The request
+/// lock orders concurrent retries even when supplied tokens differ.
+pub async fn claim_enrollment_v2(
+    database: &Database,
+    request_id: Uuid,
+    binding: &str,
+    token_hash: &str,
+    claim: &control_plane_domain::EnrollmentClaim,
+) -> Result<Device, DatabaseError> {
+    let mut tx = database.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(request_id.to_string()).execute(&mut *tx).await?;
+    let token = sqlx::query("SELECT id, revoked_at IS NOT NULL AS revoked, expires_at <= NOW() AS expired, enrollment_count >= max_enrollments AS exhausted FROM enrollment_tokens WHERE token_hash = $1 FOR UPDATE")
+        .bind(token_hash).fetch_optional(&mut *tx).await?
+        .ok_or(DatabaseError::Managed("provisioning_invalid"))?;
+    if token.get::<bool, _>("revoked") { return Err(DatabaseError::Managed("provisioning_invalid")); }
+    let token_id: Uuid = token.get("id");
+    let existing = sqlx::query("SELECT * FROM devices WHERE enrollment_request_id = $1 FOR UPDATE")
+        .bind(request_id).fetch_optional(&mut *tx).await?;
+    if let Some(row) = existing {
+        if row.get::<Option<Uuid>, _>("enrollment_token_id") != Some(token_id)
+            || row.get::<Option<String>, _>("enrollment_request_binding").as_deref() != Some(binding) {
+            return Err(DatabaseError::Managed("identity_conflict"));
+        }
+        if row.get::<Option<DateTime<Utc>>, _>("revoked_at").is_some() {
+            return Err(DatabaseError::Managed("device_revoked"));
+        }
+        let device = managed_device_row(&row);
+        tx.commit().await?;
+        return Ok(device);
+    }
+    if token.get::<bool, _>("expired") { return Err(DatabaseError::Managed("provisioning_expired")); }
+    if token.get::<bool, _>("exhausted") { return Err(DatabaseError::Managed("provisioning_invalid")); }
+    let row = sqlx::query("INSERT INTO devices (id, rustdesk_id, display_name, hostname, operating_system, client_version, public_key_fingerprint, public_key, enrollment_token_id, enrollment_request_id, enrollment_request_binding) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *")
+        .bind(Uuid::new_v4()).bind(&claim.rustdesk_id).bind(&claim.display_name)
+        .bind(&claim.hostname).bind(&claim.operating_system).bind(&claim.client_version)
+        .bind(&claim.public_key_fingerprint).bind(&claim.public_key).bind(token_id)
+        .bind(request_id).bind(binding).fetch_one(&mut *tx).await.map_err(|error| {
+            if error.as_database_error().is_some_and(|e| e.is_unique_violation()) {
+                DatabaseError::Managed("identity_conflict")
+            } else { DatabaseError::Query(error) }
+        })?;
+    let device = managed_device_row(&row);
+    sqlx::query("UPDATE enrollment_tokens SET enrollment_count = enrollment_count + 1 WHERE id = $1")
+        .bind(token_id).execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO audit_events (id, action, target_type, target_id) VALUES ($1, 'device_enrolled', 'device', $2)")
+        .bind(Uuid::new_v4()).bind(device.id.to_string()).execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(device)
+}
+
+fn managed_device_row(row: &sqlx::postgres::PgRow) -> Device {
+    Device { id: row.get("id"), rustdesk_id: row.get("rustdesk_id"), display_name: row.get("display_name"),
+        hostname: row.get("hostname"), operating_system: row.get("operating_system"), client_version: row.get("client_version"),
+        enrolled_at: row.get("enrolled_at"), last_seen_at: row.get("last_seen_at"), revoked_at: row.get("revoked_at"),
+        last_capabilities: row.get("last_capabilities"), last_health: row.get("last_health") }
+}
+
+/// Unfiltered identity is used ONLY to authenticate a proof before returning an
+/// explicit revoke code. Active-device authorization remains a separate check.
+pub async fn device_identity(database: &Database, id: Uuid) -> Result<Option<(String, String, String, bool)>, DatabaseError> {
+    let row = sqlx::query("SELECT public_key, public_key_fingerprint, rustdesk_id, revoked_at IS NOT NULL AS revoked FROM devices WHERE id = $1")
+        .bind(id).fetch_optional(database).await?;
+    Ok(row.map(|r| (r.get("public_key"), r.get("public_key_fingerprint"), r.get("rustdesk_id"), r.get("revoked"))))
 }
 
 pub async fn device_public_key(
@@ -642,6 +747,13 @@ pub async fn accept_heartbeat(
     metadata: Option<&DeviceHeartbeatMetadata>,
 ) -> Result<bool, DatabaseError> {
     let mut transaction = database.begin().await?;
+    let revoked: Option<bool> = sqlx::query_scalar("SELECT revoked_at IS NOT NULL FROM devices WHERE id=$1 FOR UPDATE")
+        .bind(device_id).fetch_optional(&mut *transaction).await?;
+    match revoked {
+        Some(false) => {},
+        Some(true) => return Err(DatabaseError::Managed("device_revoked")),
+        None => return Err(DatabaseError::Managed("invalid_device_proof")),
+    }
     let accepted = sqlx::query("INSERT INTO device_heartbeat_nonces (nonce, device_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
         .bind(nonce).bind(device_id).execute(&mut *transaction).await?.rows_affected() == 1;
     if !accepted {

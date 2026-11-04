@@ -168,7 +168,7 @@ class WorkspaceViewModel extends ChangeNotifier {
     return IdentityView(
       deviceId: s.deviceId,
       isLoading: !s.isLoaded,
-      isOnline: s.connectStatus == ConnectStatus.connected || managed,
+      isOnline: s.connectStatus == ConnectStatus.connected,
       isServiceRunning: s.isServiceRunning,
       temporaryPassword: s.temporaryPassword,
       isManaged: managed,
@@ -176,13 +176,11 @@ class WorkspaceViewModel extends ChangeNotifier {
     );
   }
 
-  ConnectStatus get connectStatus => _isManagedConnectionActive
-      ? ConnectStatus.managed
-      : _service.status.connectStatus;
+  ConnectStatus get connectStatus => _service.status.connectStatus;
 
   bool get _isManagedConnectionActive {
     final status = _managed.status;
-    return status.managedOnly && status.enrolled;
+    return status.managedOnly && status.ready;
   }
 
   bool get isServiceRunning => _service.status.isServiceRunning;
@@ -356,14 +354,14 @@ class WorkspaceViewModel extends ChangeNotifier {
     String? connToken,
   }) async {
     final normalizedId = ConnectAdapter.normalizeId(peerId);
-    final managed = ManagedClientAdapter.instance;
+    final managed = _managed;
     try {
       await managed.refresh();
-      if (managed.status.managedOnly && !managed.status.enrolled) {
+      if (managed.status.managedOnly && !managed.status.ready) {
         return ConnectResult.failure(normalizedId, ConnectFailure.failed,
             error: StateError('Managed configuration is unavailable.'));
       }
-      if (managed.status.enrolled) {
+      if (managed.status.enrolled && !managed.status.managedOnly) {
         await managed.requestSessionTicketForRustdeskId(normalizedId);
       }
     } catch (error) {

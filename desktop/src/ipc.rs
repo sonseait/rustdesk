@@ -323,6 +323,8 @@ pub enum SwitchSidesUuidAction {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "t", content = "c")]
 pub enum Data {
+    /// Sanitized, read-only status on the existing authenticated main channel.
+    ManagedSnapshot(Option<String>),
     Login {
         id: i32,
         is_file_transfer: bool,
@@ -557,6 +559,7 @@ pub enum Data {
 #[tokio::main(flavor = "current_thread")]
 pub async fn start(postfix: &str) -> ResultType<()> {
     let mut incoming = new_listener(postfix).await?;
+    if postfix.is_empty() { crate::managed_client::start_owner(); }
     loop {
         if let Some(result) = incoming.next().await {
             match result {
@@ -790,6 +793,9 @@ impl Drop for CheckIfRestart {
 
 async fn handle(data: Data, stream: &mut Connection) {
     match data {
+        Data::ManagedSnapshot(None) => {
+            allow_err!(stream.send(&Data::ManagedSnapshot(Some(crate::managed_client::snapshot_json()))).await);
+        }
         Data::SystemInfo(_) => {
             let info = format!(
                 "log_path: {}, config: {}, username: {}",
@@ -1837,6 +1843,17 @@ async fn get_options_(ms_timeout: u64) -> ResultType<HashMap<String, String>> {
         Ok(value)
     } else {
         Ok(Config::get_options())
+    }
+}
+
+#[tokio::main(flavor = "current_thread")]
+pub async fn managed_snapshot() -> ResultType<String> {
+    let mut connection = connect(1000, "").await?;
+    connection.send(&Data::ManagedSnapshot(None)).await?;
+    if let Some(Data::ManagedSnapshot(Some(snapshot))) = connection.next_timeout(1000).await? {
+        Ok(snapshot)
+    } else {
+        hbb_common::bail!("managed owner unavailable")
     }
 }
 

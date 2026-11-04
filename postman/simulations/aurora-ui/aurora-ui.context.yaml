@@ -1,0 +1,89 @@
+# Simulation context — aurora-ui
+#
+# Generated 2026-11-04.
+#
+# What is believed to be true about the services this simulation stands in for,
+# and what each belief rests on. A `null` is something nobody has established
+# yet.
+#
+# Written from a fixed template and never recreated. How to read it, and how to
+# write a run back into it, is in the api-simulation skill
+# (skills/api-simulation/reference/context_file.md).
+
+simulation: "aurora-ui"
+generated: "2026-11-04"
+
+# What this simulation stands in for and what work it unblocks. Both need
+# hindsight, so they are the last thing to write. The members it serves, their
+# route keys and the hosts they answer for are in the .sim.yaml beside this file.
+purpose:
+  stands_in_for: The local control-plane HTTP interface used by the Aurora web frontend.
+  unblocks: Visual review of all seven routes and loading, empty, error, partial, success and signed-out states without modifying live infrastructure.
+
+# What the code relies on about a dependency's behaviour — one claim per entry,
+# each { id, status, claim, reason, verification, source, updated_at }.
+#
+#   status        supported     evidence supports it, within a stated scope
+#                 contradicted  evidence gives a counterexample
+#                 unknown       available evidence cannot establish or reject it
+#                 conflicting   applicable sources disagree
+#
+#   reason        why the evidence adds up to that status
+#   verification  what was checked and what it showed — a contract read, a
+#                 request made and its response, a handler inspected. Name what
+#                 is still planned or blocked, and what has gone stale and why.
+#   source        where to go to re-check it: a file and line range, a run, a
+#                 published contract. A claim with nothing to point at is
+#                 `unknown`.
+#   updated_at    the day this entry was last written, YYYY-MM-DD. Set it when
+#                 you add a claim and again whenever you change one, so a claim
+#                 nobody has touched in months is visible as such.
+#
+# A claim is about the dependency, not about the simulation — what the caller
+# is taken to be, which plan or permission is assumed, the order calls go in,
+# what gets retried, the shape of the data.
+#
+#   - id: charges-idempotent-for-24h
+#     status: supported
+#     claim: Payments treats a repeated Idempotency-Key as the same charge for
+#       24 hours. Beyond that it is a new charge.
+#     reason: The contract guarantees it for that window, and a run inside the
+#       window agreed. The 24-hour boundary itself is untested.
+#     verification: Read the provider's API reference for POST /charges, then
+#       sent the same key twice 10 minutes apart and got the first charge id
+#       back both times.
+#     source: the provider's API reference for POST /charges; runs/idempotency-001
+#     updated_at: "2026-11-04"
+assumptions:
+  - id: configured-server-without-agent-reports
+    status: supported
+    claim: Current server configuration can be present while the server-nodes endpoint returns an empty list; the UI must still display the configured connection details.
+    reason: Configuration and node reports are separate API resources. The live portal showed revision 2 with zero node reports, and the real frontend rendered configuration through the existing simulation with an empty nodes response.
+    verification: On 2026-11-04, rendered Server nodes with empty=true; hbbs, hbbr, public key, mode and desired revision remained visible with an explicit first-report notice. Injected server-nodes HTTP 503 while configuration stayed HTTP 200; the configuration remained visible and the nodes panel exposed its error and retry action. Removing the fault restored the page through polling. Default healthy/unhealthy node fixtures still displayed their effective revisions and rollout results. Request events were confirmed in the local simulation log. These checks do not establish live agent health or rollout behavior.
+    source: controlplane-ui/src/pages/ServerNodesPage.tsx; controlplane-api/crates/api/src/main.rs server_nodes; postman/mocks/aurora-ui/default.js
+    updated_at: "2026-11-04"
+  - id: frontend-response-shapes
+    status: supported
+    claim: The frontend consumes the response fields modeled by this fixture on the routes exercised during visual review.
+    reason: Field shapes were inspected in the local API transport types and OpenAPI contract; the real frontend rendered these synthetic responses through HTTP.
+    verification: On 2026-11-04, all seven UI routes rendered against the local simulation; device restore, enrollment token creation, policy save and configuration publication updated visible state. This establishes compatibility with these fixtures, not live authorization or device behavior.
+    source: controlplane-ui/src/api.ts; controlplane-ui/src/api.generated.ts; controlplane-api/openapi.yaml; docs/design/aurora-control-plane/evidence.json; docs/design/aurora-control-plane/http-observations.json
+    updated_at: "2026-11-04"
+  - id: live-api-equivalence
+    status: unknown
+    claim: Live authentication and managed device operations produce the same outcomes as the local visual fixture.
+    reason: The fixture deliberately omits credential validation and real device/node operations. No authenticated live API was used for this UI task. The owner-mock search was skipped because the CLI was signed out.
+    verification: Not established by visual review. Validate live operations in the API integration workflow before relying on this fixture for release guarantees.
+    source: postman/mocks/aurora-ui/default.js; docs/design/aurora-control-plane/README.md
+    updated_at: "2026-11-04"
+
+# What the claims above were written against: { id, date, commit, cli }, from
+# `git rev-parse HEAD` and `postman --version`. Append an entry when either
+# differs, and say so when the tree is dirty — a sha alone reads as a clean
+# checkout. A claim carried over from an older fingerprint is one nothing has
+# re-checked since.
+fingerprints:
+  - id: aurora-ui-review
+    date: "2026-11-04"
+    commit: "db8a135728e982ac234dbd1cec1df00513bc19bd (dirty working tree; existing backend and device changes preserved)"
+    cli: "1.82.0"

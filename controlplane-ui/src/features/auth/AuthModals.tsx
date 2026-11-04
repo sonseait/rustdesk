@@ -76,14 +76,16 @@ function AccountModal({
     <Modal opened={opened} onClose={onClose} title={title} centered>
       <form onSubmit={submit}>
         <Stack>
-          <TextInput name="email" label="Work email" type="email" required />
+          <Text size="sm" c="dimmed">{fields.includes('bootstrapToken') ? 'Set up your first administrator to start managing your Aurora workspace.' : 'Sign in to your Aurora control plane.'}</Text>
+          <TextInput autoComplete="email" placeholder="you@company.com" name="email" label="Work email" type="email" required />
           {fields.includes('displayName') && (
-            <TextInput name="displayName" label="Display name" required />
+            <TextInput autoComplete="name" name="displayName" label="Display name" required />
           )}
-          <PasswordInput name="password" label="Password" minLength={12} required />
+          <PasswordInput autoComplete={fields.includes('bootstrapToken') ? 'new-password' : 'current-password'} name="password" label="Password" minLength={12} required />
           {fields.includes('totp') && (
             <TextInput
               name="totp"
+              autoComplete="one-time-code"
               label="Authenticator code"
               inputMode="numeric"
               maxLength={6}
@@ -94,7 +96,7 @@ function AccountModal({
             <PasswordInput name="bootstrapToken" label="Bootstrap token" required />
           )}
           {error && (
-            <Text c="red" size="sm">
+            <Text c="red" size="sm" role="alert">
               {error}
             </Text>
           )}
@@ -215,7 +217,7 @@ function MfaModal({ opened, onClose }: { opened: boolean; onClose: () => void })
           </>
         )}
         {error && (
-          <Text c="red" size="sm">
+          <Text c="red" size="sm" role="alert">
             {error}
           </Text>
         )}

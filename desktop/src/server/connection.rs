@@ -2821,6 +2821,19 @@ impl Connection {
         }
         // After handling CloseReason messages, proceed to process other message types
         if let Some(message::Union::LoginRequest(lr)) = msg.union {
+            if crate::managed_client::is_managed_only() {
+                let capability = match lr.union.as_ref() {
+                    Some(login_request::Union::FileTransfer(_)) => "file-transfer",
+                    Some(login_request::Union::PortForward(_)) => "port-forwarding",
+                    Some(login_request::Union::Terminal(_)) => "terminal",
+                    Some(login_request::Union::ViewCamera(_)) => "view-camera",
+                    _ => "remote-control",
+                };
+                if !crate::managed_client::capability_allowed(capability) {
+                    self.send_login_error("Managed access is unavailable").await;
+                    return false;
+                }
+            }
             if !self.check_login_scope(&lr).await {
                 return false;
             }

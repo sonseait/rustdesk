@@ -30,5 +30,7 @@ totp-rs.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+sqlx.workspace = true
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }

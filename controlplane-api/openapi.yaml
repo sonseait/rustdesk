@@ -70,6 +70,121 @@ paths:
       operationId: createSessionTicket
       responses:
         '200': { description: Signed target-bound, single-use session ticket }
+        '401': { $ref: '#/components/responses/ManagedUnauthorized' }
+  /v1/devices/{id}/restore:
+    post:
+      operationId: restoreDeviceAccess
+      security: [{ sessionCookie: [] }]
+      description: |
+        Administrator-only, same-origin mutation. Atomically clears access revoke,
+        records the explicit restore, and emits one device_restored audit event.
+        Repeating on an active row succeeds without another audit event. The
+        retained key must automatically recover fresh authorization on the client.
+        Lost or compromised keys require reprovisioning instead.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Access restored or already active }
+        '401': { description: Authentication required }
+        '403': { description: Same-origin administrator authorization required }
+        '404': { description: Unknown device }
+        '409': { description: Another active device uses this RustDesk ID }
+  /v1/devices/{id}/recovery:
+    post:
+      operationId: recoverDeviceAccess
+      description: |
+        Retained-key proof of possession; no bootstrap token or re-enrollment.
+        Requires proof_version 2, purpose device-recovery, null metadata and fresh
+        timestamp (300 seconds). No legacy payload fallback. Device must currently
+        be active after explicit admin restore. Active status and nonce consumption
+        share a device-row-locked transaction. A successful response has fresh
+        independently signed credential and policy inside a signed, 60-second
+        issuance authorization with purpose device-recovery and exact request
+        nonce/timestamp. Client verifies all signatures, bindings and freshness,
+        then atomically persists both artifacts before clearing its local revoke.
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: '#/components/schemas/DeviceProof' }
+                - type: object
+                  required: [proof_version]
+                  properties:
+                    proof_version: { const: 2 }
+                    metadata: { type: 'null' }
+      responses:
+        '200':
+          description: Fresh signed recovery authorization
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SignedRecovery' }
+        '401': { $ref: '#/components/responses/ManagedUnauthorized' }
+        '409': { description: Nonce already consumed }
+        '503': { description: Issuer signing key unavailable }
+  /v1/enrollment/claim:
+    post:
+      operationId: claimDeviceLegacy
+      description: Legacy enrollment remains available during rollout. New managed clients use claim-v2.
+      responses:
+        '201': { description: Enrolled device }
+  /v1/enrollment/claim-v2:
+    post:
+      operationId: claimDeviceRecoverable
+      description: |
+        Proof-of-possession claim. Sign the canonical payload defined in
+        docs/architecture/managed-protocol-v1.md, including SHA-256(token).
+        Retrying the same request ID and immutable identity returns the same
+        active device without another token use, even after expiry/exhaustion.
+        Explicit token revocation denies retries. Timestamp/signature must be fresh.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EnrollmentV2' }
+      responses:
+        '201': { description: Existing or newly enrolled device, including its UUID in id }
+        '401': { $ref: '#/components/responses/ManagedUnauthorized' }
+        '409': { description: identity_conflict; request binding or unique identity collision }
+        '500': { description: temporarily_unavailable; retry with the same durable identity }
+  /v1/devices/{id}/heartbeat:
+    post:
+      operationId: deviceHeartbeat
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceProof' }
+      responses:
+        '204': { description: Authenticated heartbeat accepted }
+        '401': { $ref: '#/components/responses/ManagedUnauthorized' }
+  /v1/devices/{id}/credential/renew:
+    post:
+      operationId: renewDeviceCredential
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeviceProof' }
+      responses:
+        '200': { description: Signed 24-hour device credential }
+        '401': { $ref: '#/components/responses/ManagedUnauthorized' }
+  /v1/enrollment-tokens/{id}:
+    delete:
+      operationId: revokeEnrollmentToken
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Token revoked; existing enrolled devices are unchanged }
+        '403': { description: Administrator authorization required }
   /v1/device-policy:
     post:
       operationId: getDevicePolicy
@@ -82,7 +197,97 @@ paths:
               required: [credential]
       responses:
         '200': { description: Signed, short-lived offline policy snapshot }
+        '401': { $ref: '#/components/responses/ManagedUnauthorized' }
 components:
+  responses:
+    ManagedUnauthorized:
+      description: Typed managed authorization failure. Only device_revoked is a confirmed device revoke.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error, code]
+            properties:
+              error: { type: string }
+              code:
+                type: string
+                enum: [device_revoked, credential_expired, invalid_device_proof, clock_skew, provisioning_invalid, provisioning_expired]
+  schemas:
+    SignedRecovery:
+      type: object
+      required: [claims, signature, issuer_public_key]
+      properties:
+        signature: { type: string, pattern: '^[0-9a-f]{128}$' }
+        issuer_public_key: { type: string, pattern: '^[0-9a-f]{64}$' }
+        claims:
+          type: object
+          required: [version, purpose, device_id, nonce, timestamp, issued_at, expires_at, credential, policy]
+          description: Ordered compact JSON signed by the credential issuer; see shared RecoveryClaims in libs/managed_claim.rs.
+          properties:
+            version: { const: 1 }
+            purpose: { const: device-recovery }
+            device_id: { type: string, format: uuid }
+            nonce: { type: string, format: uuid }
+            timestamp: { type: integer, format: int64, description: Exact request timestamp }
+            issued_at: { type: integer, format: int64, description: Server epoch seconds }
+            expires_at: { type: integer, format: int64, description: issued_at plus 60 seconds }
+            credential: { $ref: '#/components/schemas/SignedDeviceCredential' }
+            policy: { $ref: '#/components/schemas/SignedDevicePolicy' }
+    SignedDeviceCredential:
+      type: object
+      required: [claims, signature, issuer_public_key]
+      properties:
+        signature: { type: string, pattern: '^[0-9a-f]{128}$' }
+        issuer_public_key: { type: string, pattern: '^[0-9a-f]{64}$' }
+        claims:
+          type: object
+          required: [version, device_id, rustdesk_id, public_key_fingerprint, issued_at, expires_at]
+          properties:
+            version: { const: 1 }
+            device_id: { type: string, format: uuid }
+            rustdesk_id: { type: string }
+            public_key_fingerprint: { type: string, pattern: '^[0-9a-f]{64}$' }
+            issued_at: { type: string, format: date-time }
+            expires_at: { type: string, format: date-time }
+    SignedDevicePolicy:
+      type: object
+      required: [claims, signature, issuer_public_key]
+      properties:
+        signature: { type: string, pattern: '^[0-9a-f]{128}$' }
+        issuer_public_key: { type: string, pattern: '^[0-9a-f]{64}$' }
+        claims:
+          type: object
+          required: [version, device_id, revision, expires_at, capabilities]
+          properties:
+            version: { const: 1 }
+            device_id: { type: string, format: uuid }
+            revision: { type: integer, minimum: 1 }
+            expires_at: { type: string, format: date-time }
+            capabilities: { type: array, items: { type: string } }
+    EnrollmentV2:
+      type: object
+      required: [token, request_id, timestamp, signature, public_key_fingerprint, public_key, rustdesk_id, display_name, hostname, operating_system, client_version]
+      properties:
+        token: { type: string, minLength: 32, maxLength: 4096, writeOnly: true }
+        request_id: { type: string, format: uuid }
+        timestamp: { type: integer, format: int64, description: Epoch seconds; within 300 seconds of server time }
+        signature: { type: string, pattern: '^[0-9a-f]{128}$' }
+        public_key_fingerprint: { type: string, pattern: '^[0-9a-f]{64}$' }
+        public_key: { type: string, pattern: '^[0-9a-f]{64}$' }
+        rustdesk_id: { type: string, minLength: 1, maxLength: 256 }
+        display_name: { type: string, minLength: 1, maxLength: 256 }
+        hostname: { type: string, minLength: 1, maxLength: 256 }
+        operating_system: { type: string, minLength: 1, maxLength: 256 }
+        client_version: { type: string, minLength: 1, maxLength: 256 }
+    DeviceProof:
+      type: object
+      required: [timestamp, nonce, signature]
+      properties:
+        proof_version: { type: integer, enum: [1, 2], default: 1 }
+        timestamp: { type: integer, format: int64 }
+        nonce: { type: string, format: uuid }
+        signature: { type: string }
+        metadata: { type: [object, 'null'], description: V2 heartbeat binds the canonical JSON metadata digest; renewal sends null }
   securitySchemes:
     sessionCookie:
       type: apiKey

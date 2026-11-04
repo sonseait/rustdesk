@@ -1,4 +1,4 @@
-# RustDesk Control Plane UI
+# Aurora Control Plane UI
 
 React administration portal for `../controlplane-api`, built into the same
 production Docker image as the API.
@@ -16,3 +16,5 @@ For production, serve this bundle and the API behind the same HTTPS origin so
 the HttpOnly session cookie remains same-site. Do not put the bootstrap token
 in a Vite environment variable; it is entered only for the one-time setup
 request.
+
+The interface shares its warm light/dark palette and panel styling with the Aurora desktop app. See [visual references and local fixture review](../docs/design/aurora-control-plane/README.md).

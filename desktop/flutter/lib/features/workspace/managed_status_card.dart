@@ -3,19 +3,24 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter_hbb/integration/adapters/managed_client_adapter.dart';
 
 class ManagedStatusCard extends StatefulWidget {
-  const ManagedStatusCard({super.key});
+  const ManagedStatusCard({super.key, this.adapter});
+
+  final ManagedClientAdapter? adapter;
   @override
   State<ManagedStatusCard> createState() => _ManagedStatusCardState();
 }
 
 class _ManagedStatusCardState extends State<ManagedStatusCard> {
-  final adapter = ManagedClientAdapter.instance;
+  late final adapter = widget.adapter ?? ManagedClientAdapter.instance;
   String _syncError = '';
   @override
   void initState() {
     super.initState();
     adapter.addListener(_changed);
-    adapter.refresh();
+    // Refresh notifies shared listeners, including the workspace ancestor.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) adapter.refresh();
+    });
   }
 
   @override
@@ -32,9 +37,13 @@ class _ManagedStatusCardState extends State<ManagedStatusCard> {
   Widget build(BuildContext context) {
     final status = adapter.status;
     final revoked = status.state == 'revoked';
+    final missingIdentity = status.lastError == 'recovery_identity_missing';
     final needsAttention = revoked || status.lastError.isNotEmpty;
-    final statusLabel = status.enrolled
-        ? 'Protected'
+    final statusLabel = missingIdentity ? 'Recovery required'
+        : revoked ? 'Revoked'
+        : status.state == 'reconnecting' ? 'Reconnecting'
+        : status.state == 'waiting_for_admin' ? 'Waiting for administrator'
+        : status.ready ? 'Protected'
         : needsAttention
             ? 'Action needed'
             : 'Connecting';
@@ -79,7 +88,10 @@ class _ManagedStatusCardState extends State<ManagedStatusCard> {
           ]),
           const SizedBox(height: 8),
           Text(
-              status.enrolled
+              missingIdentity ? 'The local device identity is missing. Restore on the control plane cannot recover it. Ask your administrator to restore the original identity backup or enroll this device again.'
+                  : revoked ? 'This device no longer has managed access. Contact your administrator to restore access. Recovery is automatic once restored and online.'
+                  : status.state == 'reconnecting' ? 'Managed access will recover automatically when the connection returns.'
+                  : status.ready
                   ? 'This device is protected by your organization.'
                   : status.managedOnly
                       ? 'Setting up the secure managed connection. New connections stay blocked until this is complete.'
@@ -94,7 +106,7 @@ class _ManagedStatusCardState extends State<ManagedStatusCard> {
                     TextStyle(fontSize: 12, color: CupertinoColors.systemRed)),
           ],
           const SizedBox(height: 8),
-          if (status.enrolled)
+          if (status.enrolled && !status.managedOnly)
             Row(mainAxisSize: MainAxisSize.min, children: [
               CupertinoButton.filled(
                   minimumSize: const Size(0, 30),
