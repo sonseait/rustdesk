@@ -227,6 +227,9 @@ pub fn get_version_from_url(url: &str) -> String {
 
 pub fn gen_version() {
     println!("cargo:rerun-if-changed=Cargo.toml");
+    // Workspace cleanup can remove generated source while preserving Cargo's
+    // build-script cache. Regenerate it when the output is missing as well.
+    println!("cargo:rerun-if-changed=src/version.rs");
     use std::io::prelude::*;
     let mut file = File::create("./src/version.rs").unwrap();
     for line in read_lines("Cargo.toml").unwrap().flatten() {
