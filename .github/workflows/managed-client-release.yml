@@ -30,6 +30,15 @@ jobs:
       MANAGED_BOOTSTRAP_TOKEN: ${{ secrets.MANAGED_BOOTSTRAP_TOKEN }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Preserve local build output; clean everything else explicitly below.
+          # Only run trusted code on this persistent self-hosted runner.
+          clean: false
+      - name: Clean workspace except incremental build output
+        working-directory: ${{ github.workspace }}
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          git clean -ffdx -e /desktop/target/ -e /desktop/flutter/build/ -e /desktop/flutter/.dart_tool/ -e /desktop/flutter/windows/flutter/ephemeral/
       - name: Select Git Bash for setup actions
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
@@ -68,12 +77,15 @@ jobs:
         with:
           flutter-version: 3.44.8
           channel: stable
-          cache: true
+          # The SDK in RUNNER_TOOL_CACHE and the user's Pub cache persist locally.
+          cache: false
       - name: Configure Windows native dependencies
-        id: native-config
         shell: pwsh
         run: |
-          $vcpkgRoot = Join-Path $env:RUNNER_TEMP 'vcpkg'
+          $PSNativeCommandUseErrorActionPreference = $true
+          if (!$env:RUNNER_TOOL_CACHE) {
+            throw 'RUNNER_TOOL_CACHE must point to persistent storage on the self-hosted runner.'
+          }
           $manifest = Get-Content vcpkg.json -Raw | ConvertFrom-Json
           $revision = $manifest.'vcpkg-configuration'.'default-registry'.baseline
           if ($revision -notmatch '^[0-9a-f]{40}$') {
@@ -85,42 +97,43 @@ jobs:
             throw 'Visual Studio C++ build tools were not found.'
           }
           $toolset = (Get-Content (Join-Path $vsRoot 'VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt') -Raw).Trim()
+          # Version the local installation when the baseline, toolset or codec options change.
+          $nativeKey = "vcpkg-$revision-msvc-$toolset-x64-windows-static-v1"
+          $vcpkgRoot = Join-Path $env:RUNNER_TOOL_CACHE "managed-client/$env:GITHUB_REPOSITORY/$nativeKey"
+          Write-Host "Persistent native dependencies: $vcpkgRoot"
           "VCPKG_ROOT=$vcpkgRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "VS_INSTALL_ROOT=$vsRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "revision=$revision" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "toolset=$toolset" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "VCPKG_REVISION=$revision" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - name: Configure libclang for Windows Rust bindings
         run: '& "$env:GITHUB_WORKSPACE/.github/scripts/setup-windows-libclang.ps1"'
-      - name: Cache Windows native codecs
-        id: native-cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/vcpkg/installed
-          # Bump the suffix when changing the codec list or build options.
-          key: windows-2022-${{ runner.arch }}-vcpkg-${{ steps.native-config.outputs.revision }}-msvc-${{ steps.native-config.outputs.toolset }}-x64-windows-static-v1
-      - name: Install Windows native codec dependencies
-        if: steps.native-cache.outputs.cache-hit != 'true'
+      - name: Ensure Windows native codec dependencies
         shell: pwsh
-        env:
-          VCPKG_REVISION: ${{ steps.native-config.outputs.revision }}
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
           New-Item -ItemType Directory -Force $env:VCPKG_ROOT | Out-Null
-          git -C $env:VCPKG_ROOT init
-          git -C $env:VCPKG_ROOT remote add origin https://github.com/microsoft/vcpkg
-          git -C $env:VCPKG_ROOT fetch --depth 1 origin $env:VCPKG_REVISION
-          git -C $env:VCPKG_ROOT checkout --detach FETCH_HEAD
-          & (Join-Path $env:VCPKG_ROOT 'bootstrap-vcpkg.bat') -disableMetrics
+          if (!(Test-Path (Join-Path $env:VCPKG_ROOT '.git'))) {
+            git -C $env:VCPKG_ROOT init
+          }
+          # Idempotent even if a previous run stopped during setup.
+          git -C $env:VCPKG_ROOT config remote.origin.url https://github.com/microsoft/vcpkg
+          $head = $null
+          if (Test-Path (Join-Path $env:VCPKG_ROOT '.git/index')) {
+            $head = & git -C $env:VCPKG_ROOT rev-parse --verify HEAD
+          }
+          if ($head -ne $env:VCPKG_REVISION) {
+            git -C $env:VCPKG_ROOT fetch --depth 1 origin $env:VCPKG_REVISION
+            git -C $env:VCPKG_ROOT checkout --detach FETCH_HEAD
+          }
+          if (!(Test-Path (Join-Path $env:VCPKG_ROOT 'vcpkg.exe'))) {
+            & (Join-Path $env:VCPKG_ROOT 'bootstrap-vcpkg.bat') -disableMetrics
+          }
           Push-Location $env:VCPKG_ROOT
-          & .\vcpkg.exe install --classic libvpx:x64-windows-static libyuv:x64-windows-static opus:x64-windows-static aom:x64-windows-static
-          Pop-Location
-      - name: Cache Windows Rust build
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: desktop -> target
-          key: managed-windows-vcpkg-${{ steps.native-config.outputs.revision }}-msvc-${{ steps.native-config.outputs.toolset }}
-          env-vars: VCPKG MANAGED_ LIBCLANG_PATH
-          cache-workspace-crates: 'true'
+          try {
+            # Already installed packages are a no-op; interrupted installs can resume.
+            & .\vcpkg.exe install --classic libvpx:x64-windows-static libyuv:x64-windows-static opus:x64-windows-static aom:x64-windows-static
+          } finally {
+            Pop-Location
+          }
       - name: Fetch Flutter dependencies
         run: flutter pub get
         working-directory: desktop/flutter
@@ -140,64 +153,16 @@ jobs:
           if-no-files-found: error
           compression-level: 0
 
-  build-macos:
-    name: Build macOS client
-    runs-on: macos-14
-    timeout-minutes: 60
-    defaults:
-      run:
-        working-directory: desktop
-    env:
-      MANAGED_CP_URL: ${{ secrets.MANAGED_CP_URL }}
-      MANAGED_CP_CONFIG_PUBLIC_KEY: ${{ secrets.MANAGED_CP_CONFIG_PUBLIC_KEY }}
-      MANAGED_BOOTSTRAP_TOKEN: ${{ secrets.MANAGED_BOOTSTRAP_TOKEN }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: 3.44.8
-          channel: stable
-          cache: true
-      - name: Install macOS native codec dependencies
-        run: |
-          vcpkg_root="$RUNNER_TEMP/vcpkg"
-          git clone --depth 1 https://github.com/microsoft/vcpkg "$vcpkg_root"
-          "$vcpkg_root/bootstrap-vcpkg.sh" -disableMetrics
-          (
-            cd "$vcpkg_root"
-            ./vcpkg install libvpx:arm64-osx libyuv:arm64-osx opus:arm64-osx aom:arm64-osx
-          )
-          echo "VCPKG_ROOT=$vcpkg_root" >> "$GITHUB_ENV"
-      - name: Fetch Flutter dependencies
-        run: flutter pub get
-        working-directory: desktop/flutter
-      - name: Build managed macOS client
-        run: |
-          cargo build --release --lib --features flutter,managed-only
-          cd flutter
-          flutter build macos --release --no-pub
-      - name: Package macOS release
-        run: |
-          cd flutter/build/macos/Build/Products/Release
-          ditto -c -k --sequesterRsrc --keepParent RustDesk.app "$GITHUB_WORKSPACE/rustdesk-managed-macos-arm64.zip"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: rustdesk-managed-macos-arm64
-          path: rustdesk-managed-macos-arm64.zip
-          if-no-files-found: error
-
   publish-release:
     name: Publish GitHub prerelease
-    needs: [build-windows, build-macos]
+    needs: [build-windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: rustdesk-managed-*
+          name: rustdesk-managed-windows-x64
           path: release-assets
-          merge-multiple: true
       - name: Create or update prerelease
         env:
           GH_TOKEN: ${{ github.token }}

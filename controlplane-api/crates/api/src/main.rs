@@ -719,7 +719,7 @@ async fn update_token_expiry(
     require_same_origin(&headers)?;
     let user = require_admin(&state, &headers).await?;
     request.validate().map_err(|error| ApiError::bad_request(error.to_string()))?;
-    if control_plane_db::update_enrollment_token_expiry(&state.database, user.id, token_id, request.expires_at)
+    if control_plane_db::update_enrollment_token(&state.database, user.id, token_id, request.expires_at, request.max_enrollments)
         .await.map_err(ApiError::database)? {
         Ok(StatusCode::NO_CONTENT)
     } else {

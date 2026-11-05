@@ -113,9 +113,9 @@ export async function restoreDevice(id: string) {
     throw new Error(body.error ?? 'Unable to restore device access.')
   }
 }
-export async function updateEnrollmentTokenExpiry(input: { id: string; expires_at: string | null }) {
-  const response = await fetch(`${apiBaseUrl}/v1/enrollment-tokens/${input.id}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expires_at: input.expires_at }) })
-  if (!response.ok) throw new Error('Unable to update expiry. The token may have been revoked.')
+export async function updateEnrollmentTokenExpiry(input: { id: string; expires_at: string | null; max_enrollments: number }) {
+  const response = await fetch(`${apiBaseUrl}/v1/enrollment-tokens/${input.id}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expires_at: input.expires_at, max_enrollments: input.max_enrollments }) })
+  if (!response.ok) throw new Error('Unable to update token. Check the values; the token may have been revoked.')
 }
 
 export async function revokeEnrollmentToken(id: string) {

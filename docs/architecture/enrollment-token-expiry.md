@@ -19,9 +19,13 @@ retain their expiry values.
 timestamp/null representation. The field is mandatory, and unknown fields are
 rejected. Requires an administrator and same-origin request. Revoked or missing
 tokens return 404; expired tokens can be extended. Updating expiry does not
-rotate the token, reset its usage count, or change its enrollment limit. Every
+rotate the token or reset its usage count. Optional `max_enrollments` updates
+the total enrollment limit (1–10000); omission preserves the existing limit.
+Lowering the limit to or below the used count prevents new enrollments without
+removing devices already enrolled. Every
 successful update writes an audit event in the same database transaction.
-The portal pencil next to Expires opens the editor with the current expiry;
+The portal Edit button next to Revoke opens the token editor with its current
+limit and expiry. Table actions use compact-sm buttons in a 200px column;
 relative presets are calculated from save time, not the previous expiry.
 
 Deploy the API with migration `0018_enrollment_token_optional_expiry.sql` before

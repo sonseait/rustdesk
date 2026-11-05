@@ -485,13 +485,23 @@ pub async fn update_enrollment_token_expiry(
     token_id: Uuid,
     expires_at: Option<DateTime<Utc>>,
 ) -> Result<bool, DatabaseError> {
+    update_enrollment_token(database, actor_user_id, token_id, expires_at, None).await
+}
+
+pub async fn update_enrollment_token(
+    database: &Database,
+    actor_user_id: Uuid,
+    token_id: Uuid,
+    expires_at: Option<DateTime<Utc>>,
+    max_enrollments: Option<i32>,
+) -> Result<bool, DatabaseError> {
     let mut transaction = database.begin().await?;
-    let changed = sqlx::query("UPDATE enrollment_tokens SET expires_at = $2 WHERE id = $1 AND revoked_at IS NULL")
-        .bind(token_id).bind(expires_at).execute(&mut *transaction).await?.rows_affected() > 0;
+    let changed = sqlx::query("UPDATE enrollment_tokens SET expires_at = $2, max_enrollments = COALESCE($3, max_enrollments) WHERE id = $1 AND revoked_at IS NULL")
+        .bind(token_id).bind(expires_at).bind(max_enrollments).execute(&mut *transaction).await?.rows_affected() > 0;
     if changed {
         sqlx::query("INSERT INTO audit_events (id, actor_user_id, action, target_type, target_id, detail) VALUES ($1, $2, 'enrollment_token_expiry_updated', 'enrollment_token', $3, $4)")
             .bind(Uuid::new_v4()).bind(actor_user_id).bind(token_id.to_string())
-            .bind(json!({"expires_at": expires_at})).execute(&mut *transaction).await?;
+            .bind(json!({"expires_at": expires_at, "max_enrollments": max_enrollments})).execute(&mut *transaction).await?;
     }
     transaction.commit().await?;
     Ok(changed)

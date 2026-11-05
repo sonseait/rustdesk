@@ -120,6 +120,7 @@ pub struct EnrollmentToken {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateEnrollmentTokenExpiry {
+    pub max_enrollments: Option<i32>,
     // Required even when null: omission must not remove expiry.
     #[serde(deserialize_with = "Deserialize::deserialize")]
     pub expires_at: Option<DateTime<Utc>>,
@@ -127,6 +128,12 @@ pub struct UpdateEnrollmentTokenExpiry {
 
 impl UpdateEnrollmentTokenExpiry {
     pub fn validate(&self) -> Result<(), ValidationError> {
+        if self
+            .max_enrollments
+            .is_some_and(|limit| !(1..=10_000).contains(&limit))
+        {
+            return Err(ValidationError::InvalidEnrollmentLimit);
+        }
         if self.expires_at.is_some_and(|expiry| expiry <= Utc::now()) {
             return Err(ValidationError::InvalidEnrollmentExpiry);
         }

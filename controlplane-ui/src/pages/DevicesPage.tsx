@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from 'react'
-import { ActionIcon, Badge, Button, Group, Modal, NumberInput, Paper, Select, Stack, Text, TextInput } from '@mantine/core'
+import { Badge, Button, Group, Modal, NumberInput, Paper, Select, Stack, Text, TextInput } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import dayjs from 'dayjs'
 import { DataTable } from 'mantine-datatable'
 import toast from 'react-hot-toast'
-import { Check, Copy, KeyRound, Monitor, Pencil, Plus, ShieldAlert } from 'lucide-react'
+import { Check, Copy, KeyRound, Monitor, Plus, ShieldAlert } from 'lucide-react'
 import { QueryFeedback, ResourcePanel, ResourceSearch } from '../components/ResourcePanel'
 import {
   createEnrollmentToken,
@@ -94,14 +94,14 @@ export function DevicesPage({ user }: { user: CurrentUser | null }) {
                 revoked_at ? (
                   <Group gap="xs">
                     <Badge color="red">Revoked</Badge>
-                    <Button size="xs" variant="subtle" disabled={restore.isPending || revoke.isPending}
+                    <Button size="compact-sm" variant="subtle" disabled={restore.isPending || revoke.isPending}
                       loading={restore.isPending && restore.variables === id}
                       onClick={() => setConfirmation({ id, action: 'restore' })}>
                       Restore access
                     </Button>
                   </Group>
                 ) : (
-                  <Button size="xs" color="red" variant="subtle" disabled={revoke.isPending || restore.isPending}
+                  <Button size="compact-sm" color="red" variant="subtle" disabled={revoke.isPending || restore.isPending}
                     onClick={() => setConfirmation({ id, action: 'revoke' })}>
                     Revoke
                   </Button>
@@ -136,14 +136,17 @@ export function DevicesPage({ user }: { user: CurrentUser | null }) {
             {
               accessor: 'expires_at',
               title: 'Expires',
-              render: (token) => <Group gap={6} wrap="nowrap"><Text size="sm">{token.expires_at ? dayjs(token.expires_at).format('YYYY-MM-DD HH:mm') : 'Never'}</Text>{!token.revoked_at && <ActionIcon size="sm" variant="subtle" aria-label={`Edit expiry for ${token.label}`} onClick={() => setEditingToken(token)}><Pencil size={13} /></ActionIcon>}</Group>,
+              render: (token) => token.expires_at ? dayjs(token.expires_at).format('YYYY-MM-DD HH:mm') : 'Never',
             },
             {
-              accessor: 'id', title: '', width: 90, textAlign: 'right', render: ({ id, revoked_at }) => !revoked_at && (
-                <Button size="xs" color="red" variant="subtle" disabled={revokeToken.isPending}
-                  onClick={() => setConfirmation({ id, action: 'token' })}>
-                  Revoke
-                </Button>
+              accessor: 'id', title: '', width: 200, textAlign: 'right', render: (token) => !token.revoked_at && (
+                <Group gap="xs" justify="flex-end" wrap="nowrap">
+                  <Button size="compact-sm" variant="subtle" disabled={revokeToken.isPending} onClick={() => setEditingToken(token)}>Edit</Button>
+                  <Button size="compact-sm" color="red" variant="subtle" disabled={revokeToken.isPending}
+                    onClick={() => setConfirmation({ id: token.id, action: 'token' })}>
+                    Revoke
+                  </Button>
+                </Group>
               ),
             },
           ]}
@@ -154,7 +157,7 @@ export function DevicesPage({ user }: { user: CurrentUser | null }) {
         <Stack><span className="state-icon"><ShieldAlert size={22} /></span><Text size="sm" c="dimmed">{confirmation?.action === 'restore' ? 'The retained device key will recover automatically when online. For lost or compromised keys, provision a new identity instead.' : confirmation?.action === 'token' ? 'Pending enrollment retries using this token will be denied.' : 'This device will lose its managed access. You can restore access from the device directory.'}</Text><Group justify="flex-end"><Button variant="default" onClick={() => setConfirmation(null)}>Cancel</Button><Button color={confirmation?.action === 'restore' ? 'terracotta' : 'red'} onClick={() => { if (!confirmation) return; const mutation = confirmation.action === 'restore' ? restore : confirmation.action === 'token' ? revokeToken : revoke; mutation.mutate(confirmation.id); setConfirmation(null) }}>{confirmation?.action === 'restore' ? 'Restore access' : 'Revoke access'}</Button></Group></Stack>
       </Modal>
 
-      {editingToken && <EditTokenExpiryModal token={editingToken} onClose={() => setEditingToken(null)} onSaved={() => queryClient.invalidateQueries({ queryKey: ['enrollment-tokens'] })} />}
+      {editingToken && <EditTokenModal token={editingToken} onClose={() => setEditingToken(null)} onSaved={() => queryClient.invalidateQueries({ queryKey: ['enrollment-tokens'] })} />}
       <EnrollmentTokenModal
         key={opened ? 'opened' : 'closed'}
         opened={opened}
@@ -165,13 +168,14 @@ export function DevicesPage({ user }: { user: CurrentUser | null }) {
   )
 }
 
-function EditTokenExpiryModal({ token, onClose, onSaved }: { token: EnrollmentToken; onClose: () => void; onSaved: () => void }) {
+function EditTokenModal({ token, onClose, onSaved }: { token: EnrollmentToken; onClose: () => void; onSaved: () => void }) {
+  const [maxEnrollments, setMaxEnrollments] = useState<string | number>(token.max_enrollments)
   const [preset, setPreset] = useState<ExpiryPreset>(token.expires_at ? 'exact' : 'never')
   const [exact, setExact] = useState(token.expires_at ? dayjs(token.expires_at).format('YYYY-MM-DDTHH:mm:ss') : '')
   const [error, setError] = useState('')
   const mutation = useMutation({
     mutationFn: updateEnrollmentTokenExpiry,
-    onSuccess: () => { onSaved(); onClose(); toast.success('Token expiry updated') },
+    onSuccess: () => { onSaved(); onClose(); toast.success('Token updated') },
     onError: (error: Error) => setError(error.message),
   })
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -179,16 +183,22 @@ function EditTokenExpiryModal({ token, onClose, onSaved }: { token: EnrollmentTo
     try {
       const expires_at = enrollmentExpiry(preset, exact)
       setError('')
-      mutation.mutate({ id: token.id, expires_at })
+      const limit = Number(maxEnrollments)
+      if (!Number.isInteger(limit) || limit < 1 || limit > 10_000) {
+        setError('Maximum enrollments must be between 1 and 10000')
+        return
+      }
+      mutation.mutate({ id: token.id, expires_at, max_enrollments: limit })
     } catch {
       setError('Choose a future date and time')
     }
   }
-  return <Modal opened onClose={onClose} title="Edit token expiry" centered closeOnEscape={!mutation.isPending} closeOnClickOutside={!mutation.isPending} closeButtonProps={{ disabled: mutation.isPending }}>
+  return <Modal opened onClose={onClose} title="Edit token" centered closeOnEscape={!mutation.isPending} closeOnClickOutside={!mutation.isPending} closeButtonProps={{ disabled: mutation.isPending }}>
     <form onSubmit={submit}><Stack>
       <Text size="sm">{token.label}</Text>
-      <Text size="xs" c="dimmed">Presets are calculated from the time you save. The token and its usage limit stay unchanged.</Text>
+      <Text size="xs" c="dimmed">Presets are calculated from the time you save. The token and its used enrollment count stay unchanged.</Text>
       <fieldset disabled={mutation.isPending} className="enrollment-fields">
+        <NumberInput label="Maximum enrollments" required min={1} max={10_000} allowDecimal={false} value={maxEnrollments} onChange={setMaxEnrollments} description={`${token.enrollment_count} enrollments already used. This count will not reset.`} />
         <Select label="Expires" value={preset} allowDeselect={false} onChange={(value) => { setPreset(value as ExpiryPreset); setError('') }} data={expiryOptions} />
         {preset === 'exact' && <TextInput type="datetime-local" step={1} label="Expiration date and time" description="Your local time zone" required value={exact} onChange={(event) => { setExact(event.currentTarget.value); setError('') }} />}
       </fieldset>
