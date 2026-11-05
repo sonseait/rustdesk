@@ -37,7 +37,12 @@ impl Error for ParseError {
 }
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.to_string())
+        f.write_str(match self {
+            ParseError::UnknownTag(_) => "Unknown tag",
+            ParseError::UnexpectedOpen => "Unescaped open bracket ({) found inside tag name",
+            ParseError::UnmatchedOpen => "Unmatched open bracket ({). No matching close (})",
+            ParseError::UnmatchedClose => "Unmatched close bracket (}). No previous open ({)",
+        })
     }
 }
 
@@ -150,6 +155,18 @@ fn tokenize(input: &str) -> Result<Vec<Token>, ParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_errors_display_without_recursion() {
+        for (error, expected) in [
+            (ParseError::UnknownTag("TEST".into()), "Unknown tag"),
+            (ParseError::UnexpectedOpen, "Unescaped open bracket ({) found inside tag name"),
+            (ParseError::UnmatchedOpen, "Unmatched open bracket ({). No matching close (})"),
+            (ParseError::UnmatchedClose, "Unmatched close bracket (}). No previous open ({)"),
+        ] {
+            assert_eq!(error.to_string(), expected);
+        }
+    }
 
     #[test]
     fn success() {

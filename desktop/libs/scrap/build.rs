@@ -86,7 +86,7 @@ fn link_homebrew_m1(name: &str) -> PathBuf {
     let entries = if let Ok(dir) = std::fs::read_dir(&path) {
         dir
     } else {
-        panic!("Could not find package in {}. Make sure your homebrew and package {} are all installed.", path.to_str().unwrap(),&name);
+        panic!("Could not find package in {}. Make sure your homebrew and package {} are all installed.", path.to_str().unwrap(), name);
     };
     let mut directories = entries
         .into_iter()

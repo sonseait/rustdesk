@@ -1037,6 +1037,7 @@ fn diagnostic_code(code: &str) -> &str {
         | "temporarily_unavailable" | "authorization_rejected" | "owner_unavailable"
         | "credential_store_unavailable" | "credential_store_unsupported" | "deployment_mismatch"
         | "credential_store_version" | "pending_identity_unavailable" | "recovery_identity_missing" => code,
+        "credential_store_too_large" | "credential_store_access_denied" | "credential_store_encoding" => code,
         _ => "managed_validation_failed",
     }
 }
