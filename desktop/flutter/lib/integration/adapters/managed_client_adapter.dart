@@ -84,6 +84,38 @@ class ManagedClientAdapter extends ChangeNotifier {
       policyState: 'unavailable',
       lastError: '');
   ManagedClientStatus get status => _status;
+  final List<String> _diagnosticEvents = [];
+  String _previousDiagnostic = '';
+  List<String> get diagnosticEvents => List.unmodifiable(_diagnosticEvents);
+
+  String get diagnosticSummary {
+    final uri = Uri.tryParse(_status.controlPlaneUrl);
+    final origin = uri != null && (uri.scheme == 'https' || uri.scheme == 'http') && uri.host.isNotEmpty
+        ? '${uri.scheme}://${uri.host}:${uri.port}' : 'unavailable';
+    // Allowlisted status only; never include raw responses or exception text.
+    return [
+      'State: ${_status.state}',
+      'Managed access ready: ${_status.ready}',
+      'Device ID: ${_status.deviceId}',
+      'Control plane: $origin',
+      'Rendezvous server: ${_status.rendezvousServer}',
+      'Relay server: ${_status.relayServer}',
+      'Policy: ${_status.policyState}',
+      'Credential expires: ${_status.credentialExpiresAt}',
+      'Policy expires: ${_status.policyExpiresAt}',
+      'Last error: ${_status.lastError}',
+      'Last successful sync: ${_status.lastSuccessfulSync}',
+      'Next retry: ${_status.nextRetry}',
+    ].join('\n');
+  }
+
+  void _recordDiagnostic() {
+    final summary = diagnosticSummary;
+    if (summary == _previousDiagnostic) return;
+    _previousDiagnostic = summary;
+    _diagnosticEvents.insert(0, '${DateTime.now().toUtc().toIso8601String()}\n$summary');
+    if (_diagnosticEvents.length > 100) _diagnosticEvents.removeLast();
+  }
 
   Future<void> refresh() async {
     if (_disposed || _reading || (_statusReader == null && !platformFFI.isInitialized)) return;
@@ -106,6 +138,7 @@ class ManagedClientAdapter extends ChangeNotifier {
         coreReady: map['ready'] as bool? ?? false,
         lastSuccessfulSync: map['last_successful_sync'] as String? ?? '',
         nextRetry: map['next_retry'] as String? ?? '');
+    _recordDiagnostic();
     notifyListeners();
     } catch (_) {
       if (!_disposed && _status.state != 'revoked') {
@@ -114,6 +147,7 @@ class ManagedClientAdapter extends ChangeNotifier {
             rendezvousServer: _status.rendezvousServer, relayServer: _status.relayServer,
             credentialExpiresAt: _status.credentialExpiresAt, policyExpiresAt: _status.policyExpiresAt,
             policyState: _status.policyState, lastError: 'owner_unavailable');
+        _recordDiagnostic();
         notifyListeners();
       }
     } finally { _reading = false; }

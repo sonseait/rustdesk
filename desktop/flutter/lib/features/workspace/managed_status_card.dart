@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'managed_diagnostics_page.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter_hbb/integration/adapters/managed_client_adapter.dart';
 
@@ -128,6 +129,12 @@ class _ManagedStatusCardState extends State<ManagedStatusCard> {
                 style:
                     TextStyle(fontSize: 12, color: CupertinoColors.systemRed)),
           ],
+          CupertinoButton(
+              minimumSize: const Size(0, 28),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              onPressed: () => Navigator.of(context).push(CupertinoPageRoute<void>(
+                  builder: (_) => ManagedDiagnosticsPage(adapter: adapter))),
+              child: const Text('Diagnostics', style: TextStyle(fontSize: 12))),
           if (!status.enrolled && !status.managedOnly)
             CupertinoButton.filled(
                 minimumSize: const Size(0, 30),
