@@ -414,7 +414,7 @@ pub async fn create_enrollment_token(
     token_hash: &str,
     label: &str,
     max_enrollments: i32,
-    expires_at: DateTime<Utc>,
+    expires_at: Option<DateTime<Utc>>,
 ) -> Result<EnrollmentToken, DatabaseError> {
     let id = Uuid::new_v4();
     let mut transaction = database.begin().await?;
@@ -474,6 +474,24 @@ pub async fn revoke_enrollment_token(
     if changed {
         sqlx::query("INSERT INTO audit_events (id, actor_user_id, action, target_type, target_id) VALUES ($1, $2, 'enrollment_token_revoked', 'enrollment_token', $3)")
         .bind(Uuid::new_v4()).bind(actor_user_id).bind(token_id.to_string()).execute(&mut *transaction).await?;
+    }
+    transaction.commit().await?;
+    Ok(changed)
+}
+
+pub async fn update_enrollment_token_expiry(
+    database: &Database,
+    actor_user_id: Uuid,
+    token_id: Uuid,
+    expires_at: Option<DateTime<Utc>>,
+) -> Result<bool, DatabaseError> {
+    let mut transaction = database.begin().await?;
+    let changed = sqlx::query("UPDATE enrollment_tokens SET expires_at = $2 WHERE id = $1 AND revoked_at IS NULL")
+        .bind(token_id).bind(expires_at).execute(&mut *transaction).await?.rows_affected() > 0;
+    if changed {
+        sqlx::query("INSERT INTO audit_events (id, actor_user_id, action, target_type, target_id, detail) VALUES ($1, $2, 'enrollment_token_expiry_updated', 'enrollment_token', $3, $4)")
+            .bind(Uuid::new_v4()).bind(actor_user_id).bind(token_id.to_string())
+            .bind(json!({"expires_at": expires_at})).execute(&mut *transaction).await?;
     }
     transaction.commit().await?;
     Ok(changed)
@@ -571,7 +589,7 @@ pub async fn claim_enrollment(
 ) -> Result<Option<Device>, DatabaseError> {
     let mut transaction = database.begin().await?;
     let token_id: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM enrollment_tokens WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > NOW() AND enrollment_count < max_enrollments FOR UPDATE",
+        "SELECT id FROM enrollment_tokens WHERE token_hash = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW()) AND enrollment_count < max_enrollments FOR UPDATE",
     ).bind(token_hash).fetch_optional(&mut *transaction).await?;
     let Some(token_id) = token_id else {
         transaction.rollback().await?;
@@ -631,7 +649,7 @@ pub async fn claim_enrollment_v2(
     let mut tx = database.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
         .bind(request_id.to_string()).execute(&mut *tx).await?;
-    let token = sqlx::query("SELECT id, revoked_at IS NOT NULL AS revoked, expires_at <= NOW() AS expired, enrollment_count >= max_enrollments AS exhausted FROM enrollment_tokens WHERE token_hash = $1 FOR UPDATE")
+    let token = sqlx::query("SELECT id, revoked_at IS NOT NULL AS revoked, COALESCE(expires_at <= NOW(), FALSE) AS expired, enrollment_count >= max_enrollments AS exhausted FROM enrollment_tokens WHERE token_hash = $1 FOR UPDATE")
         .bind(token_hash).fetch_optional(&mut *tx).await?
         .ok_or(DatabaseError::Managed("provisioning_invalid"))?;
     if token.get::<bool, _>("revoked") { return Err(DatabaseError::Managed("provisioning_invalid")); }

@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom'
 import { getCurrentServerConfig, getDevices, getRemoteSessions, type CurrentUser } from '../api'
 import { PageHeader } from '../components/PageHeader'
 import { QueryFeedback, ResourcePanel } from '../components/ResourcePanel'
+import { deviceDisplayName } from '../deviceIdentity'
 
 type OverviewPageProps = { user: CurrentUser | null; onBootstrap: () => void; onSignIn: () => void }
 
@@ -44,7 +45,7 @@ export function OverviewPage({ user, onBootstrap, onSignIn }: OverviewPageProps)
       <ResourcePanel title="Recent devices" description="Your most recently enrolled devices" icon={Monitor} actions={<Button component={Link} to="/devices" variant="subtle" size="xs" rightSection={<ArrowRight size={13} />}>View all</Button>}>
         {user && <QueryFeedback query={devices} label="devices" />}
         {user && devices.isLoading ? <Stack p="lg">{[1, 2, 3].map((id) => <Skeleton height={38} key={id} />)}</Stack> : activeDevices?.length ? [...activeDevices].sort((a, b) => dayjs(b.enrolled_at).valueOf() - dayjs(a.enrolled_at).valueOf()).slice(0, 3).map((device) => <div className="overview-device-row" key={device.id}>
-          <span className="panel-icon"><Monitor size={18} /></span><div className="device-summary"><Text size="sm" fw={600}>{device.display_name || device.hostname}</Text><Text size="xs" c="dimmed">{device.operating_system} · {device.rustdesk_id}</Text></div><Badge color="terracotta">Enrolled</Badge>
+          <span className="panel-icon"><Monitor size={18} /></span><div className="device-summary"><Text size="sm" fw={600}>{deviceDisplayName(device)}</Text><Text size="xs" c="dimmed">{device.operating_system} · {device.rustdesk_id}</Text></div><Badge color="terracotta">Enrolled</Badge>
         </div>) : <div className="empty-inline"><Monitor size={24} /><Text fw={600} size="sm">{user ? devices.isError ? 'Devices unavailable' : 'No devices enrolled yet' : 'Your devices belong here'}</Text><Text size="xs">{user ? 'Manage devices to create an enrollment token.' : 'Sign in to see your managed devices.'}</Text></div>}
       </ResourcePanel>
       <ResourcePanel title="Workspace shortcuts" description="Everything you need, close at hand" icon={SlidersHorizontal}>

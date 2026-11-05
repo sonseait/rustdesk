@@ -246,7 +246,7 @@ async fn main() -> Result<()> {
             "/v1/enrollment-tokens",
             get(enrollment_tokens).post(create_token),
         )
-        .route("/v1/enrollment-tokens/:id", delete(revoke_token))
+        .route("/v1/enrollment-tokens/:id", delete(revoke_token).patch(update_token_expiry))
         .route("/v1/devices", get(devices))
         .route("/v1/devices/:id/revoke", post(revoke_managed_device))
         .route("/v1/devices/:id/restore", post(restore_managed_device))
@@ -700,7 +700,7 @@ async fn create_token(
         &hash_session_token(&secret),
         &request.label,
         request.max_enrollments,
-        Utc::now() + Duration::hours(i64::from(request.expires_in_hours)),
+        request.expires_at.or_else(|| request.expires_in_hours.map(|hours| Utc::now() + Duration::hours(i64::from(hours)))),
     )
     .await
     .map_err(ApiError::database)?;
@@ -708,6 +708,23 @@ async fn create_token(
         StatusCode::CREATED,
         Json(CreatedEnrollmentToken { token, secret }),
     ))
+}
+
+async fn update_token_expiry(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(token_id): Path<uuid::Uuid>,
+    Json(request): Json<control_plane_domain::UpdateEnrollmentTokenExpiry>,
+) -> Result<StatusCode, ApiError> {
+    require_same_origin(&headers)?;
+    let user = require_admin(&state, &headers).await?;
+    request.validate().map_err(|error| ApiError::bad_request(error.to_string()))?;
+    if control_plane_db::update_enrollment_token_expiry(&state.database, user.id, token_id, request.expires_at)
+        .await.map_err(ApiError::database)? {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err(ApiError::not_found())
+    }
 }
 
 async fn revoke_token(

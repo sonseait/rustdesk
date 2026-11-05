@@ -96,11 +96,11 @@ export type ServerNode = { id: string; name: string; endpoint: string; status: s
 export const getServerNodes = () => getAdminResource<ServerNode[]>('/v1/server-nodes')
 
 export type Device = { id: string; rustdesk_id: string; display_name: string; hostname: string; operating_system: string; client_version: string; enrolled_at: string; last_seen_at: string | null; revoked_at: string | null }
-export type EnrollmentToken = { id: string; label: string; max_enrollments: number; enrollment_count: number; expires_at: string; revoked_at: string | null }
+export type EnrollmentToken = { id: string; label: string; max_enrollments: number; enrollment_count: number; expires_at: string | null; revoked_at: string | null }
 export type CreatedEnrollmentToken = { token: EnrollmentToken; secret: string }
 export const getDevices = () => getAdminResource<Device[]>('/v1/devices')
 export const getEnrollmentTokens = () => getAdminResource<EnrollmentToken[]>('/v1/enrollment-tokens')
-export async function createEnrollmentToken(input: { label: string; expires_in_hours: number; max_enrollments: number }) {
+export async function createEnrollmentToken(input: { label: string; expires_at: string | null; max_enrollments: number }) {
   const response = await fetch(`${apiBaseUrl}/v1/enrollment-tokens`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) })
   if (!response.ok) throw new Error('Unable to create enrollment token.')
   return response.json() as Promise<CreatedEnrollmentToken>
@@ -113,6 +113,11 @@ export async function restoreDevice(id: string) {
     throw new Error(body.error ?? 'Unable to restore device access.')
   }
 }
+export async function updateEnrollmentTokenExpiry(input: { id: string; expires_at: string | null }) {
+  const response = await fetch(`${apiBaseUrl}/v1/enrollment-tokens/${input.id}`, { method: 'PATCH', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ expires_at: input.expires_at }) })
+  if (!response.ok) throw new Error('Unable to update expiry. The token may have been revoked.')
+}
+
 export async function revokeEnrollmentToken(id: string) {
   const response = await fetch(`${apiBaseUrl}/v1/enrollment-tokens/${id}`, { method: 'DELETE', credentials: 'include' })
   if (!response.ok) throw new Error('Unable to revoke enrollment token.')

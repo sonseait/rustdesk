@@ -550,7 +550,7 @@ pub fn bootstrap_managed_only() -> Result<(), String> {
     let current = restored_snapshot();
     if current.revoked || local_option(REVOKED_KEY) == "Y" { return Err("device_revoked".into()); }
     if current.device_id.is_empty() {
-        enroll(managed_bootstrap::BOOTSTRAP_TOKEN.into(), "Managed RustDesk device".into())?;
+        enroll(managed_bootstrap::BOOTSTRAP_TOKEN.into(), crate::common::hostname())?;
     }
     Ok(())
 }
@@ -825,7 +825,7 @@ pub fn enroll(enrollment_token: String, display_name: String) -> Result<ManagedS
             public_key_fingerprint: pending.public_key_fingerprint.clone(),
             public_key: hex::encode(key.verifying_key().as_bytes()), rustdesk_id: local_rustdesk_id(),
             display_name: display_name.trim().into(),
-            hostname: std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown-host".into()).trim().into(),
+            hostname: crate::common::hostname(),
             operating_system: std::env::consts::OS.into(), client_version: env!("CARGO_PKG_VERSION").into(),
         });
         pending.signing_key = Some(key);
@@ -1144,7 +1144,7 @@ pub fn heartbeat() -> Result<(), String> {
     let _operation = operations().lock().unwrap_or_else(|e| e.into_inner());
     let current = restored_snapshot();
     let proof = signed_proof(&current, "heartbeat", serde_json::json!({
-        "hostname": std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown-host".into()),
+        "hostname": crate::common::hostname(),
         "operating_system": std::env::consts::OS, "client_version": env!("CARGO_PKG_VERSION"),
         "capabilities": ["remote-control", "file-transfer", "clipboard"], "health": {"status":"healthy"}
     }))?;

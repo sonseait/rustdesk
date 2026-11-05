@@ -82,7 +82,8 @@ pub struct ServerNode {
 #[derive(Debug, Clone, Deserialize)]
 pub struct NewEnrollmentToken {
     pub label: String,
-    pub expires_in_hours: i32,
+    pub expires_in_hours: Option<i32>,
+    pub expires_at: Option<DateTime<Utc>>,
     pub max_enrollments: i32,
 }
 
@@ -91,7 +92,12 @@ impl NewEnrollmentToken {
         if self.label.trim().is_empty() || self.label.len() > 128 {
             return Err(ValidationError::InvalidEnrollmentLabel);
         }
-        if !(1..=24 * 30).contains(&self.expires_in_hours) {
+        if self
+            .expires_in_hours
+            .is_some_and(|hours| !(1..=24 * 366).contains(&hours))
+            || self.expires_at.is_some_and(|expiry| expiry <= Utc::now())
+            || (self.expires_in_hours.is_some() && self.expires_at.is_some())
+        {
             return Err(ValidationError::InvalidEnrollmentExpiry);
         }
         if !(1..=10_000).contains(&self.max_enrollments) {
@@ -107,8 +113,25 @@ pub struct EnrollmentToken {
     pub label: String,
     pub max_enrollments: i32,
     pub enrollment_count: i32,
-    pub expires_at: DateTime<Utc>,
+    pub expires_at: Option<DateTime<Utc>>,
     pub revoked_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateEnrollmentTokenExpiry {
+    // Required even when null: omission must not remove expiry.
+    #[serde(deserialize_with = "Deserialize::deserialize")]
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+impl UpdateEnrollmentTokenExpiry {
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        if self.expires_at.is_some_and(|expiry| expiry <= Utc::now()) {
+            return Err(ValidationError::InvalidEnrollmentExpiry);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -293,7 +316,7 @@ pub enum ValidationError {
     InvalidAnonymousWindow,
     #[error("enrollment token label must be between 1 and 128 characters")]
     InvalidEnrollmentLabel,
-    #[error("enrollment token expiry must be between 1 hour and 30 days")]
+    #[error("enrollment token expiry must be a future timestamp, 1 to 8784 hours, or null for no expiry; do not combine expiry fields")]
     InvalidEnrollmentExpiry,
     #[error("enrollment count must be between 1 and 10000")]
     InvalidEnrollmentLimit,
