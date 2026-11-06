@@ -2,9 +2,9 @@ Managed Windows host setup (Windows x64 build 19041+)
 
 Recommended: run rustdesk-managed-windows-x64-setup.exe, approve UAC and
 accept the included Amyuni license in the installation wizard. No Python or
-manual extraction is required on the target PC. Windows PowerShell is used.
-Alternatively extract the entire ZIP and run Setup.cmd as administrator.
-For the ZIP workflow, read usbmmidd_v2/License.txt before typing INSTALL.
+manual extraction is required on the target PC. Inno Setup directly runs the
+native app/service installer and driver utility; it does not launch PowerShell.
+The ZIP is a portable runtime bundle, not the service/driver setup entrypoint.
 Driver attribution: Amyuni Technologies Inc., https://www.amyuni.com/
 The included original license permits redistribution with acknowledgement and
 states that advertising pages may be displayed. Driver files are unmodified.
@@ -12,10 +12,8 @@ states that advertising pages may be displayed. Driver files are unmodified.
 Setup installs RustDesk in Program Files with an automatic service and installs
 Amyuni's signed virtual display driver. It does NOT configure Windows auto-login,
 disable the lock screen, change passwords, or weaken managed authorization.
-Default virtual display mode is 2560x1440. For another supported default, run in
-an Administrator PowerShell:
-  .\Setup.ps1 -Resolution '1920,1080'
-  .\Setup.ps1 -Resolution '3840,2160'
+Default virtual display mode is 2560x1440. Change the active resolution through
+Windows Display Settings if another supported mode is preferred.
 Existing displays can retain a Windows-saved mode. Select the virtual display
 in Windows Display Settings and confirm its resolution. In the remote session,
 select that display and a high image-quality preset. Higher resolution increases

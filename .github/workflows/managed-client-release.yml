@@ -147,10 +147,8 @@ jobs:
         run: |
           python "$env:GITHUB_WORKSPACE/.github/scripts/package-managed-windows.py" flutter/build/windows/x64/runner/Release
           if ($LASTEXITCODE -ne 0) { throw 'Managed Windows setup packaging failed' }
-          $tokens = $null
-          $parseErrors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/flutter/build/windows/x64/runner/Release/Setup.ps1", [ref]$tokens, [ref]$parseErrors) | Out-Null
-          if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
+          python "$env:GITHUB_WORKSPACE/.github/scripts/test_windows_installer.py"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows installer contract tests failed' }
           Compress-Archive -Path 'flutter/build/windows/x64/runner/Release/*' -DestinationPath "$env:GITHUB_WORKSPACE/rustdesk-managed-windows-x64.zip"
       - name: Build Windows setup executable
         shell: pwsh

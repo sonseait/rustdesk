@@ -39,8 +39,10 @@ def main():
             data = response.read(16 * 1024 * 1024)
     stage_driver(data, args.release)
     source = Path(__file__).resolve().parents[2] / 'desktop' / 'res' / 'managed-setup'
-    for name in ['Setup.cmd', 'Setup.ps1', 'SETUP.txt']:
-        shutil.copy2(source / name, args.release / name)
+    # Persistent runners can retain scripts from older release bundles.
+    for name in ['Setup.cmd', 'Setup.ps1']:
+        (args.release / name).unlink(missing_ok=True)
+    shutil.copy2(source / 'SETUP.txt', args.release / 'SETUP.txt')
 
 
 if __name__ == '__main__':
