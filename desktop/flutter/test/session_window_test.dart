@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -38,6 +39,7 @@ void main() {
     OptionRepository? options,
     VoidCallback? onLastTabClosed,
     GlobalKey<SessionWindowState>? key,
+    int? windowId,
   }) async {
     tester.view.physicalSize = const Size(1200, 800);
     tester.view.devicePixelRatio = 1;
@@ -47,6 +49,7 @@ void main() {
       home: SessionWindow(
         key: key,
         tabs: tabs,
+        windowId: windowId,
         options: options ?? _FakeOptions(),
         onLastTabClosed: onLastTabClosed,
         // A real SessionPage would start an FFI session, which a widget test
@@ -59,6 +62,28 @@ void main() {
   }
 
   group('the tab strip', () {
+    testWidgets('subwindow close protection uses its multi-window controller',
+        (tester) async {
+      const channel = MethodChannel('mixin.one/flutter_multi_window');
+      final calls = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+          (call) async {
+        calls.add(call);
+        return null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, null));
+      await pumpWindow(tester, SessionTabsModel(tabs: [tab('847293160')]),
+          windowId: 7);
+      expect(calls.any((call) => call.method == 'setPreventClose'), isTrue);
+      final state = tester.state<SessionWindowState>(find.byType(SessionWindow));
+      state.onWindowClose();
+      await tester.pumpAndSettle();
+      expect(calls.map((call) => call.method),
+          ['setPreventClose', 'setPreventClose', 'close']);
+      expect(calls.last.arguments, 7);
+      await tester.pumpWidget(const SizedBox());
+    });
     testWidgets('is hidden for a single session', (tester) async {
       // One tab of chrome would say nothing the title bar does not.
       await pumpWindow(tester, SessionTabsModel(tabs: [tab('847293160')]));

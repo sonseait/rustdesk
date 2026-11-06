@@ -256,7 +256,12 @@ class _SessionStatus extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           decoration: const BoxDecoration(
               color: Color(0xFF3B241C), shape: BoxShape.circle),
-          child: Icon(icon, size: 34, color: const Color(0xFFF5B69B)),
+          child: model.stage == SessionStage.connecting
+              ? CupertinoActivityIndicator(
+                  radius: 17,
+                  color: const Color(0xFFF5B69B),
+                  animating: !MediaQuery.disableAnimationsOf(context))
+              : Icon(icon, size: 34, color: const Color(0xFFF5B69B)),
         ),
         const SizedBox(height: 15),
         Text(title,
@@ -267,10 +272,13 @@ class _SessionStatus extends StatelessWidget {
         const SizedBox(height: 6),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Text(
-            model.statusLine,
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Color(0xFFD9C3B9), fontSize: 12),
+          child: Semantics(
+            liveRegion: true,
+            child: Text(
+              model.statusLine,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Color(0xFFD9C3B9), fontSize: 12),
+            ),
           ),
         ),
         if (model.stage == SessionStage.failed ||
@@ -282,7 +290,8 @@ class _SessionStatus extends StatelessWidget {
                 const EdgeInsets.symmetric(horizontal: 18, vertical: 9),
             minimumSize: Size.zero,
             onPressed: () => model.reconnect(),
-            child: const Text('Reconnect', style: TextStyle(fontSize: 13)),
+            child: const Text('Reconnect',
+                style: TextStyle(color: CupertinoColors.white, fontSize: 13)),
           ),
         ],
         if (model.stage == SessionStage.prompt) ...[

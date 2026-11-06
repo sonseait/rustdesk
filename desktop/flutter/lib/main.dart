@@ -298,6 +298,7 @@ class _SessionWindowAppState extends State<SessionWindowApp> {
         peerId: config.peerId,
         child: SessionWindow(
           tabs: _tabs,
+          windowId: config.windowId,
           onLastTabClosed: () =>
               unawaited(SessionWindowRegistry.instance.close()),
         ),

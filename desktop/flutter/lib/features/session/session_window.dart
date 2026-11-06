@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:window_manager/window_manager.dart';
@@ -23,6 +24,7 @@ class SessionWindow extends StatefulWidget {
   const SessionWindow({
     super.key,
     required this.tabs,
+    this.windowId,
     this.options,
     this.onLastTabClosed,
     this.pageBuilder,
@@ -31,6 +33,7 @@ class SessionWindow extends StatefulWidget {
   /// The sessions this window holds. Owned by the caller so the window
   /// bootstrap can seed it from the launch arguments.
   final SessionTabsModel tabs;
+  final int? windowId;
 
   /// Injectable for tests.
   final OptionRepository? options;
@@ -46,7 +49,8 @@ class SessionWindow extends StatefulWidget {
   State<SessionWindow> createState() => SessionWindowState();
 }
 
-class SessionWindowState extends State<SessionWindow> with WindowListener {
+class SessionWindowState extends State<SessionWindow>
+    with WindowListener, MultiWindowListener {
   OptionRepository get _options => widget.options ?? OptionRepository.instance;
 
   var _listening = false;
@@ -56,12 +60,16 @@ class SessionWindowState extends State<SessionWindow> with WindowListener {
   void initState() {
     super.initState();
     widget.tabs.addListener(_onTabsChanged);
-    if (isDesktop) {
+    if (widget.windowId != null || isDesktop) {
       // The title-bar close button has to be intercepted, or it would drop
       // every live session in the window without asking.
-      windowManager.addListener(this);
+      if (widget.windowId != null) {
+        DesktopMultiWindow.addListener(this);
+      } else {
+        windowManager.addListener(this);
+      }
       _listening = true;
-      unawaited(windowManager.setPreventClose(true));
+      unawaited(_setPreventClose(true));
     }
   }
 
@@ -72,7 +80,13 @@ class SessionWindowState extends State<SessionWindow> with WindowListener {
   @override
   void dispose() {
     widget.tabs.removeListener(_onTabsChanged);
-    if (_listening) windowManager.removeListener(this);
+    if (_listening) {
+      if (widget.windowId != null) {
+        DesktopMultiWindow.removeListener(this);
+      } else {
+        windowManager.removeListener(this);
+      }
+    }
     super.dispose();
   }
 
@@ -91,8 +105,20 @@ class SessionWindowState extends State<SessionWindow> with WindowListener {
       _closing = false;
       return;
     }
-    await windowManager.setPreventClose(false);
-    await windowManager.close();
+    await _setPreventClose(false);
+    final windowId = widget.windowId;
+    if (windowId != null) {
+      await WindowController.fromWindowId(windowId).close();
+    } else {
+      await windowManager.close();
+    }
+  }
+
+  Future<void> _setPreventClose(bool value) {
+    final windowId = widget.windowId;
+    return windowId == null
+        ? windowManager.setPreventClose(value)
+        : WindowController.fromWindowId(windowId).setPreventClose(value);
   }
 
   /// Whether closing several sessions at once should be confirmed first.
@@ -169,6 +195,7 @@ class SessionWindowState extends State<SessionWindow> with WindowListener {
                     SessionPage(
                       key: ValueKey(tab.key),
                       remoteId: tab.peerId,
+                      onClose: () => _closeTab(tab.peerId),
                       password: tab.password,
                       kind: tab.kind,
                       forceRelay: tab.forceRelay,

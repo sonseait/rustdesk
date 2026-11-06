@@ -56,6 +56,7 @@ class WindowCoordinator {
   /// Open the session described by [request], reusing a window when the
   /// existing rules allow it.
   Future<WindowCallResult> open(ConnectionRequest request) async {
+    await reconcileWindows();
     final type = request.kind.windowType;
     final windows = windowsOf(type);
 
@@ -266,6 +267,19 @@ class WindowCoordinator {
       if (e is AssertionError) return [];
       rethrow;
     }
+  }
+
+  /// Native windows may disappear without a final hide notification.
+  Future<void> reconcileWindows() async {
+    final live = (await getAllSubWindowIds()).toSet();
+    for (final type in WindowType.values) {
+      if (type == WindowType.Main || type == WindowType.Unknown) continue;
+      windowsOf(type).removeWhere((id) => !live.contains(id));
+    }
+    _windowPeers.removeWhere((id, _) => !live.contains(id));
+    _activeWindows.removeWhere(
+        (id) => id != kMainWindowId && !live.contains(id));
+    _inactiveWindows.removeWhere((id) => !live.contains(id));
   }
 
   Future<void> registerActiveWindow(int windowId) async {

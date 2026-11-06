@@ -16,7 +16,7 @@ use hbb_common::{
         register_pk_response::Result::{TOO_FREQUENT, UUID_MISMATCH},
         *,
     },
-    tcp::FramedStream,
+    tcp::{Encrypt, FramedStream},
     timeout,
     tokio::{
         self,
@@ -48,10 +48,10 @@ enum Data {
 }
 
 const REG_TIMEOUT: i64 = 30_000;
-type TcpStreamSink = SplitSink<Framed<TcpStream, BytesCodec>, Bytes>;
+type TcpStreamSink = SplitSink<Framed<hbb_common::tcp::DynTcpStream, BytesCodec>, Bytes>;
 type WsSink = SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, tungstenite::Message>;
 enum Sink {
-    TcpStream(TcpStreamSink),
+    TcpStream(TcpStreamSink, Option<Encrypt>),
     Ws(WsSink),
 }
 type Sender = mpsc::UnboundedSender<Data>;
@@ -886,7 +886,11 @@ impl RendezvousServer {
         if let Some(sink) = sink.as_mut() {
             if let Ok(bytes) = msg.write_to_bytes() {
                 match sink {
-                    Sink::TcpStream(s) => {
+                    Sink::TcpStream(s, encryption) => {
+                        let bytes = match encryption.as_mut() {
+                            Some(encryption) => encryption.enc(&bytes),
+                            None => bytes,
+                        };
                         allow_err!(s.send(Bytes::from(bytes)).await);
                     }
                     Sink::Ws(ws) => {
@@ -1249,11 +1253,25 @@ impl RendezvousServer {
                 }
             }
         } else {
-            let (a, mut b) = Framed::new(stream, BytesCodec::new()).split();
-            sink = Some(Sink::TcpStream(a));
-            while let Ok(Some(Ok(bytes))) = timeout(30_000, b.next()).await {
-                if !self.handle_tcp(&bytes, &mut sink, addr, key, ws).await {
-                    break;
+            let mut stream = FramedStream::from(stream, addr);
+            let first = crate::tcp_security::accept(&mut stream, self.inner.sk.as_ref()).await?;
+            let mut encryption = stream.2.take();
+            let (a, mut b) = stream.0.split();
+            sink = Some(Sink::TcpStream(a, encryption.clone()));
+            let keep_reading = match first {
+                Some(bytes) => self.handle_tcp(&bytes, &mut sink, addr, key, ws).await,
+                None => false,
+            };
+            if keep_reading {
+                while let Ok(Some(Ok(mut bytes))) = timeout(30_000, b.next()).await {
+                    if let Some(encryption) = encryption.as_mut() {
+                        if encryption.dec(&mut bytes).is_err() {
+                            break;
+                        }
+                    }
+                    if !self.handle_tcp(&bytes, &mut sink, addr, key, ws).await {
+                        break;
+                    }
                 }
             }
         }

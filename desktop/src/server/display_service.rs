@@ -23,9 +23,13 @@ struct ChangedResolution {
 }
 
 lazy_static::lazy_static! {
-    static ref IS_CAPTURER_MAGNIFIER_SUPPORTED: bool = is_capturer_mag_supported();
     static ref CHANGED_RESOLUTIONS: Arc<RwLock<HashMap<String, ChangedResolution>>> = Default::default();
     static ref SYNC_DISPLAYS: Arc<Mutex<SyncDisplaysInfo>> = Default::default();
+}
+
+#[cfg(windows)]
+lazy_static::lazy_static! {
+    static ref IS_CAPTURER_MAGNIFIER_SUPPORTED: bool = is_capturer_mag_supported();
 }
 
 #[cfg(target_os = "linux")]
@@ -291,11 +295,9 @@ pub fn restore_resolutions() {
 }
 
 #[inline]
+#[cfg(windows)]
 fn is_capturer_mag_supported() -> bool {
-    #[cfg(windows)]
-    return scrap::CapturerMag::is_supported();
-    #[cfg(not(windows))]
-    false
+    scrap::CapturerMag::is_supported()
 }
 
 #[inline]

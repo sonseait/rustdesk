@@ -25,6 +25,7 @@ class SessionPage extends StatefulWidget {
     this.isSharedPassword,
     this.connToken,
     this.switchUuid,
+    this.onClose,
   });
 
   final String remoteId;
@@ -40,6 +41,7 @@ class SessionPage extends StatefulWidget {
   final bool? isSharedPassword;
   final String? connToken;
   final String? switchUuid;
+  final VoidCallback? onClose;
 
   @override
   State<SessionPage> createState() => _SessionPageState();
@@ -120,7 +122,7 @@ class _SessionPageState extends State<SessionPage> {
                       chatVisible: _chatVisible,
                       onDetails: () =>
                           setState(() => _detailsVisible = !_detailsVisible),
-                      onClose: () => Navigator.pop(context))),
+                      onClose: widget.onClose ?? () => Navigator.pop(context))),
             if (_detailsVisible)
               Positioned(
                   top: 77,

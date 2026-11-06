@@ -26,7 +26,11 @@ Future<FakeSessionViewModel> pumpSession(
   await tester.pumpWidget(CupertinoApp(
     home: SessionPage(remoteId: '847293160', viewModel: viewModel),
   ));
-  await tester.pumpAndSettle();
+  if (viewModel.stage == SessionStage.connecting) {
+    await tester.pump(const Duration(milliseconds: 100));
+  } else {
+    await tester.pumpAndSettle();
+  }
   return viewModel;
 }
 
@@ -38,6 +42,9 @@ void main() {
               stageOverride: SessionStage.connecting));
 
       expect(find.text('Connecting'), findsOneWidget);
+      expect(find.byType(CupertinoActivityIndicator), findsOneWidget);
+      expect(tester.widget<CupertinoActivityIndicator>(
+          find.byType(CupertinoActivityIndicator)).animating, isTrue);
     });
 
     testWidgets('shows a failure with a reconnect action', (tester) async {
@@ -60,6 +67,19 @@ void main() {
 
       expect(find.text('Session closed'), findsWidgets);
       expect(find.text('Reconnect'), findsOneWidget);
+    });
+
+    testWidgets('reconnect label remains white on its dark background',
+        (tester) async {
+      for (final stage in [SessionStage.failed, SessionStage.closed]) {
+        await pumpSession(tester,
+            model: FakeSessionViewModel(stageOverride: stage));
+        final label = tester.widget<RichText>(find.descendant(
+          of: find.text('Reconnect'),
+          matching: find.byType(RichText),
+        ));
+        expect(label.text.style?.color, CupertinoColors.white);
+      }
     });
 
     testWidgets('asks for a password when the core prompts', (tester) async {

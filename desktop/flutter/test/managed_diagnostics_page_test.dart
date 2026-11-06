@@ -2,11 +2,11 @@ import 'dart:convert';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:flutter_hbb/features/workspace/managed_status_card.dart';
+import 'package:flutter_hbb/features/workspace/managed_diagnostics_page.dart';
 import 'package:flutter_hbb/integration/adapters/managed_client_adapter.dart';
 
 void main() {
-  testWidgets('open diagnostics, update live, copy and return', (tester) async {
+  testWidgets('retained diagnostics page updates live and copies', (tester) async {
     var error = 'invalid_config_response';
     String? copied;
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
@@ -18,10 +18,8 @@ void main() {
       'managed_only': true, 'state': 'waiting_for_admin',
       'last_error': error, 'policy_state': 'unavailable',
     }));
-    await tester.pumpWidget(CupertinoApp(home: CupertinoPageScaffold(
-        child: ManagedStatusCard(adapter: adapter))));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Diagnostics'));
+    await tester.pumpWidget(CupertinoApp(
+        home: ManagedDiagnosticsPage(adapter: adapter)));
     await tester.pumpAndSettle();
     expect(find.textContaining('Last error: invalid_config_response'), findsWidgets);
     await tester.tap(find.text('Copy'));
@@ -32,9 +30,7 @@ void main() {
     await adapter.refresh();
     await tester.pump();
     expect(find.textContaining('Last error: owner_unavailable'), findsWidgets);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-    expect(find.text('Managed device'), findsOneWidget);
+
     await tester.pumpWidget(const SizedBox.shrink());
     adapter.dispose();
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, null);

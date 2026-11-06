@@ -199,9 +199,9 @@ fn local_option(key: &str) -> String { LocalConfig::get_option(key) }
 fn set_local_option(key: String, value: String) { LocalConfig::set_option(key, value); }
 #[cfg(not(test))]
 fn config_option(key: &str) -> String { Config::get_option(key) }
-#[cfg(not(test))]
+#[cfg(all(not(test), feature = "managed-only"))]
 fn set_config_option(key: &str, value: String) { Config::set_option(key.into(), value); }
-#[cfg(not(test))]
+#[cfg(all(not(test), feature = "managed-only"))]
 fn restart_mediator() { crate::rendezvous_mediator::RendezvousMediator::restart(); }
 #[cfg(not(test))]
 fn local_rustdesk_id() -> String { Config::get_id() }
@@ -213,9 +213,9 @@ fn local_option(key: &str) -> String { TEST_OPTIONS.with(|o| o.borrow().get(key)
 fn set_local_option(key: String, value: String) { TEST_OPTIONS.with(|o| { o.borrow_mut().insert(key,value); }); }
 #[cfg(test)]
 fn config_option(key: &str) -> String { local_option(&format!("effective-{key}")) }
-#[cfg(test)]
+#[cfg(all(test, feature = "managed-only"))]
 fn set_config_option(key: &str, value: String) { set_local_option(format!("effective-{key}"), value); }
-#[cfg(test)]
+#[cfg(all(test, feature = "managed-only"))]
 fn restart_mediator() { set_local_option("mediator-restarts".into(), (local_option("mediator-restarts").parse::<u64>().unwrap_or(0) + 1).to_string()); }
 #[cfg(test)]
 fn local_rustdesk_id() -> String { "123456789".into() }
@@ -415,6 +415,7 @@ struct SignedDevicePolicy {
     issuer_public_key: String,
 }
 
+#[cfg(any(test, feature = "managed-only"))]
 #[derive(Clone, Deserialize, Serialize)]
 struct DeploymentConfigClaims {
     version: u16,
@@ -425,6 +426,7 @@ struct DeploymentConfigClaims {
     issued_at: DateTime<Utc>,
 }
 
+#[cfg(feature = "managed-only")]
 #[derive(Clone, Deserialize)]
 struct SignedDeploymentConfig {
     claims: DeploymentConfigClaims,

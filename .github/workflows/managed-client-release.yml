@@ -145,11 +145,30 @@ jobs:
       - name: Package Windows release
         shell: pwsh
         run: |
+          python "$env:GITHUB_WORKSPACE/.github/scripts/package-managed-windows.py" flutter/build/windows/x64/runner/Release
+          if ($LASTEXITCODE -ne 0) { throw 'Managed Windows setup packaging failed' }
+          $tokens = $null
+          $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/flutter/build/windows/x64/runner/Release/Setup.ps1", [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
           Compress-Archive -Path 'flutter/build/windows/x64/runner/Release/*' -DestinationPath "$env:GITHUB_WORKSPACE/rustdesk-managed-windows-x64.zip"
+      - name: Build Windows setup executable
+        shell: pwsh
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe"
+          if (!(Test-Path $compiler)) {
+            choco install innosetup --version=6.4.3 --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          }
+          $bundle = "$PWD/flutter/build/windows/x64/runner/Release"
+          & $compiler "/DBundleDir=$bundle" "/DOutputDir=$env:GITHUB_WORKSPACE" "$env:GITHUB_WORKSPACE/desktop/res/managed-setup/managed-windows.iss"
+          if ($LASTEXITCODE -ne 0) { throw 'Windows installer compilation failed' }
       - uses: actions/upload-artifact@v4
         with:
           name: rustdesk-managed-windows-x64
-          path: rustdesk-managed-windows-x64.zip
+          path: |
+            rustdesk-managed-windows-x64.zip
+            rustdesk-managed-windows-x64-setup.exe
           if-no-files-found: error
           compression-level: 0
 

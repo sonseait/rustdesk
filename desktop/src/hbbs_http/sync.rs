@@ -278,10 +278,33 @@ fn heartbeat_url() -> String {
         Config::get_option("api-server"),
         Config::get_option("custom-rendezvous-server"),
     );
-    if url.is_empty() || crate::is_public(&url) {
+    legacy_heartbeat_url(&url, cfg!(feature = "managed-only"))
+}
+
+fn legacy_heartbeat_url(url: &str, managed_only: bool) -> String {
+    // Managed policy, metadata and heartbeat use the authenticated CP lifecycle.
+    // A rendezvous address does not imply a legacy Pro API on port 21114.
+    if managed_only || url.is_empty() || crate::is_public(url) {
         return "".to_owned();
     }
     format!("{}/api/heartbeat", url)
+}
+
+#[cfg(test)]
+mod heartbeat_tests {
+    #[test]
+    fn managed_clients_do_not_use_legacy_reporting() {
+        assert_eq!(super::legacy_heartbeat_url("http://65.20.86.27:21114", true), "");
+        assert_eq!(super::legacy_heartbeat_url("https://cp.example/api", true), "");
+    }
+
+    #[test]
+    fn standard_clients_keep_legacy_reporting() {
+        assert_eq!(super::legacy_heartbeat_url("https://legacy.example", false),
+            "https://legacy.example/api/heartbeat");
+        assert_eq!(super::legacy_heartbeat_url("", false), "");
+        assert_eq!(super::legacy_heartbeat_url("https://admin.rustdesk.com", false), "");
+    }
 }
 
 fn handle_config_options(config_options: HashMap<String, String>) {

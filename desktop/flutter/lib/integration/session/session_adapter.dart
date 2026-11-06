@@ -68,7 +68,11 @@ class SessionPrompt {
         'terminal-admin-login-password',
       }.contains(type);
 
-  bool get isError => type == 'error' || type.contains('error');
+  bool get isError =>
+      type == 'error' ||
+      type.contains('error') ||
+      type == 'relay-hint' ||
+      type == 'relay-hint2';
 
   /// The peer is restarting; the session will reconnect itself.
   bool get isRestarting => type == 'restarting' || type == 'restarting-show';
@@ -116,6 +120,20 @@ class SessionAdapter extends ChangeNotifier {
   bool _secure = false;
   bool _direct = false;
   bool _waitingForFirstFrame = true;
+  bool _transportReady = false;
+
+  /// Only reports milestones confirmed by native session events.
+  String get connectionProgress {
+    if (_phase == SessionPhase.connected) {
+      return 'Authenticated · Waiting for the first frame…';
+    }
+    if (_transportReady) {
+      final route = _direct ? 'direct' : 'relay';
+      final security = _secure ? 'Encrypted' : 'Unencrypted';
+      return '$security $route connection established · Waiting for remote authentication…';
+    }
+    return 'Connecting to $peerId · Waiting for a connection…';
+  }
 
   /// Fired when the core reports a new video frame is ready for [display].
   /// The texture model listens to this.
@@ -271,6 +289,7 @@ class SessionAdapter extends ChangeNotifier {
         _handleSyncPeerInfo(event);
         break;
       case 'connection_ready':
+        _transportReady = true;
         _secure = event['secure'] == 'true';
         _direct = event['direct'] == 'true';
         notifyListeners();
@@ -385,6 +404,7 @@ class SessionAdapter extends ChangeNotifier {
     // A restart is a reconnect, not a failure: the core drives it and the
     // session comes back on its own.
     if (prompt.isRestarting) {
+      _transportReady = false;
       _permissions = const SessionPermissions.empty();
       _setPhase(SessionPhase.connecting);
       return;
@@ -449,6 +469,7 @@ class SessionAdapter extends ChangeNotifier {
     if (_closed) return;
     _error = null;
     _waitingForFirstFrame = true;
+    _transportReady = false;
     _setPhase(SessionPhase.connecting);
     await _bind.sessionReconnect(
         sessionId: sessionId, forceRelay: forceRelay);

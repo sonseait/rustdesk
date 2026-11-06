@@ -174,9 +174,7 @@ class SessionViewModel extends ChangeNotifier {
   String get statusLine {
     switch (stage) {
       case SessionStage.connecting:
-        return _session.phase == SessionPhase.connected
-            ? 'Waiting for the first frame…'
-            : 'Connecting to $peerId…';
+        return _session.connectionProgress;
       case SessionStage.live:
         final parts = <String>[
           if (isSecure) 'Encrypted' else 'Not encrypted',

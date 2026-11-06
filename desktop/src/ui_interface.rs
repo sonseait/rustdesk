@@ -16,7 +16,7 @@ use hbb_common::{
     tokio::{sync::mpsc, time},
 };
 use serde_derive::Serialize;
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(not(any(target_os = "android", target_os = "ios", feature = "flutter")))]
 use std::process::Child;
 use std::{
     collections::HashMap,
@@ -31,7 +31,7 @@ use crate::ipc;
 
 type Message = RendezvousMessage;
 
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(not(any(target_os = "android", target_os = "ios", feature = "flutter")))]
 pub type Children = Arc<Mutex<(bool, HashMap<(String, String), Child>)>>;
 
 #[derive(Clone, Debug, Serialize)]
@@ -77,6 +77,10 @@ lazy_static::lazy_static! {
     static ref OPTION_SYNCED: Arc<Mutex<bool>> = Default::default();
     static ref OPTIONS : Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(Config::get_options()));
     pub static ref SENDER : Mutex<mpsc::UnboundedSender<ipc::Data>> = Mutex::new(check_connect_status(true));
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios", feature = "flutter")))]
+lazy_static::lazy_static! {
     static ref CHILDREN : Children = Default::default();
 }
 

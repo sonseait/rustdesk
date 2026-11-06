@@ -206,6 +206,7 @@ class MobileServiceAdapter extends ChangeNotifier {
 
   /// Who is connected right now, waiting-for-approval connections included.
   List<ConnectedClient> get clients => List.unmodifiable(_clients);
+  bool clientsRefreshSucceeded = false;
 
   /// Connections still waiting to be accepted.
   List<ConnectedClient> get pendingClients =>
@@ -416,6 +417,7 @@ class MobileServiceAdapter extends ChangeNotifier {
   /// The core owns the list; it is not pushed, so a surface showing clients
   /// refreshes after anything that could change it.
   Future<void> refreshClients() async {
+    clientsRefreshSucceeded = false;
     try {
       final payload = await bind.cmGetClientsState();
       if (payload.isEmpty) {
@@ -430,6 +432,7 @@ class MobileServiceAdapter extends ChangeNotifier {
                     ConnectedClient.fromJson(entry)
               ];
       }
+      clientsRefreshSucceeded = true;
     } catch (e) {
       debugPrint('failed to read the connected clients: $e');
       _clients = const [];
