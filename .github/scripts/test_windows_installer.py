@@ -19,6 +19,10 @@ class InstallerContract(unittest.TestCase):
         source = (ROOT / '.github/scripts/package-managed-windows.py').read_text()
         self.assertNotIn("['Setup.cmd', 'Setup.ps1', 'SETUP.txt']", source)
 
+    def test_retired_setup_entrypoints_are_removed(self):
+        for name in ['Setup.cmd', 'Setup.ps1']:
+            self.assertFalse((ROOT / 'desktop/res/managed-setup' / name).exists())
+
 
 if __name__ == '__main__':
     unittest.main()

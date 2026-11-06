@@ -65,7 +65,7 @@ void main() {
     await tester.pump();
     expect(find.text('Revoked'), findsOneWidget);
     expect(find.textContaining('Recovery is automatic'), findsOneWidget);
-    expect(find.text('Diagnostics'), findsNothing);
+    expect(find.text('Diagnostics'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     adapter.dispose();
   });
@@ -89,7 +89,7 @@ void main() {
     expect(find.text('Recovery required'), findsOneWidget);
     expect(find.textContaining('enroll this device again'), findsOneWidget);
     expect(find.textContaining('Recovery is automatic'), findsNothing);
-    expect(find.text('Diagnostics'), findsNothing);
+    expect(find.text('Diagnostics'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     adapter.dispose();
   });
